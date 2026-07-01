@@ -91,7 +91,27 @@
   }
 }
 
+/* Hero description: gentle ping-pong marquee — slides left→right then right→left.
+   Wide travel range; the container never clips, so the full line stays visible. */
+.hero-marquee {
+  display: inline-block;
+  animation: heroSlide 10s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes heroSlide {
+  from {
+    transform: translateX(-180px);
+  }
+  to {
+    transform: translateX(180px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .hero-marquee {
+    animation: none;
+    transform: none;
+  }
   .rag-shimmer {
     animation: none;
     background-image: none;

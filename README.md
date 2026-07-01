@@ -73,6 +73,30 @@ npm run preview    # optional: preview the built site
 The contents of `frontend/dist/` are static files and can be hosted on any static host
 (Netlify, Vercel, GitHub Pages, S3, etc.).
 
+## Continuous deployment (Netlify)
+
+This repo is Git-connected-deploy ready. Build settings live in [`netlify.toml`](./netlify.toml)
+(read on every push), so no build configuration is needed in the Netlify UI — you only connect
+the repo once and point the production branch at **`master`**.
+
+One-time setup:
+
+1. In Netlify: **Add new site → Import an existing project** and connect this Git repository.
+2. Leave the build command / publish directory as-is — Netlify reads them from `netlify.toml`
+   (`base = frontend`, `command = npm run build`, `publish = dist`, `NODE_VERSION = 22`).
+3. Set the **production branch to `master`**: Site configuration → Build & deploy → Branches →
+   *Production branch* = `master`.
+
+After that:
+
+- **Every push to `master`** automatically builds and deploys to production.
+- **Pull requests** get their own [Deploy Preview](https://docs.netlify.com/site-deploys/deploy-previews/)
+  URLs; other branches get branch deploys.
+- SPA deep links / hard refreshes are handled by the `/* → /index.html` rule (in both
+  `netlify.toml` and `frontend/public/_redirects`).
+
+No backend, serverless functions, environment variables, or secrets are required.
+
 ## Project structure
 
 ```

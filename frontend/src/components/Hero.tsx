@@ -44,12 +44,15 @@ export default function Hero() {
         </div>
       </div>
 
-      {/* LINE 2 — one sentence; forced to a single line on desktop */}
-      <p className="mt-3 whitespace-normal font-body text-sm text-ink/70 hdr:whitespace-nowrap">
-        An interactive{' '}
-        <span className="rag-shimmer text-[1.5em] font-bold">estimator</span> for building a production{' '}
-        <span className="rag-shimmer rag-shimmer--offset text-[1.5em] font-bold">RAG</span>{' '}
-        system.
+      {/* LINE 3 — one sentence; gently scrolls left↔right (ping-pong marquee).
+          No overflow clipping, so the full line is visible throughout the travel. */}
+      <p className="mt-3 max-w-full whitespace-nowrap font-body text-sm text-ink/70">
+        <span className="hero-marquee">
+          An interactive{' '}
+          <span className="rag-shimmer text-[1.5em] font-bold">estimator</span> for building a
+          production <span className="rag-shimmer rag-shimmer--offset text-[1.5em] font-bold">RAG</span>{' '}
+          system
+        </span>
       </p>
     </section>
   );
