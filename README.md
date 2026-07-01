@@ -1,84 +1,49 @@
-# RAG Demo
+# RAG · TCO — Total Cost of Ownership Estimator
 
-A small full-stack demo of Retrieval-Augmented Generation (RAG). Upload PDF or TXT documents, have them chunked and indexed in Pinecone, then ask questions about their content through a chat interface powered by OpenAI.
+An interactive, **frontend-only** estimator for the true monthly cost buckets of a production
+Retrieval-Augmented Generation (RAG) system. It goes beyond the visible API bill (the
+"waterline") to model the layers most teams forget — vector storage & retrieval, ingestion &
+embedding, re-indexing, reranking, network egress, observability, and engineering labor — then
+lets you export a branded proposal as **PDF** or **Excel**.
 
-## Architecture
+All prices are **illustrative, dated June 2026**. Nothing is a quote; verify rates against the
+official pricing pages linked inside the app.
 
-- **Frontend**: React 18 + Vite (runs on `http://localhost:5173`)
-- **Backend**: FastAPI + Uvicorn (runs on `http://localhost:8000`)
-- **Vector store**: Pinecone
-- **Embeddings & LLM**: OpenAI (`text-embedding-3-small`, `gpt-4o`)
+## What's inside
+
+Five tabs, joined by an `Explore → Estimate → Propose` flow:
+
+- **Explore** — a master–detail guide to each RAG cost layer: scannable bullets + key–value
+  facts, provider comparison tables, an interactive "token lab", a clickable pipeline diagram,
+  and a filterable glossary. "Use in Estimate" buttons preselect the matching option.
+- **Estimate** — a tile-based configurator (Corpus, Traffic, Generation, Embedding, Vector DB,
+  Reranking, Caching, Network, Team & misc) with a live cost breakdown, custom-rate overrides,
+  per-bucket flat pins, and miscellaneous line items.
+- **Propose** — turns the current estimate into a shareable proposal with a live preview and
+  client-side **PDF** / **Excel** exports (plus "Copy summary").
+- **Build vs. Buy** — managed vs. self-hosted totals from the same inputs.
+- **Scale & Break-even** — cost curves across query volume with the managed/self-hosted crossover.
+
+Everything runs in the browser — there is no backend and no data leaves the page. Exports are
+generated client-side.
+
+## Tech stack
+
+- **React 18 + TypeScript**, built with **Vite 5**
+- **Tailwind CSS** (design tokens: ink `#15242B`, petrol `#0E6E6E`, petrol-light `#2DA0A0`,
+  amber `#C2790C`; Space Grotesk / Inter / IBM Plex Mono)
+- **Recharts** (scale curves)
+- **jsPDF + jspdf-autotable** (PDF export) and **SheetJS `xlsx`** (Excel export)
+- **Vitest** for the cost-model unit tests
 
 ## Prerequisites
 
-- Python 3.10+
-- Node.js 18+
-- An [OpenAI](https://platform.openai.com/) API key
-- A [Pinecone](https://www.pinecone.io/) API key and an index named `rag-demo` (or update `PINECONE_INDEX_NAME`)
+- **Node.js 18+** and npm
 
-## Project structure
+No API keys, environment variables, or database are required — the estimator is fully
+client-side.
 
-```
-rag-demo/
-├── backend/
-│   ├── main.py                 # FastAPI entry point
-│   ├── requirements.txt        # Python dependencies
-│   ├── .env.example            # Environment variable template
-│   ├── routes/
-│   │   ├── upload.py           # POST /api/upload
-│   │   └── query.py            # POST /api/query
-│   └── services/
-│       ├── document_processor.py
-│       ├── embeddings.py
-│       └── pinecone_client.py
-└── frontend/
-    ├── index.html
-    ├── package.json
-    ├── vite.config.js
-    └── src/
-        ├── App.jsx
-        └── components/
-            ├── FileUpload.jsx
-            └── ChatWindow.jsx
-```
-
-## Configuration
-
-1. Copy the example environment file in the backend:
-
-   ```bash
-   cp backend/.env.example backend/.env
-   ```
-
-2. Edit `backend/.env` and add your keys:
-
-   ```env
-   OPENAI_API_KEY=sk-...
-   PINECONE_API_KEY=...
-   PINECONE_INDEX_NAME=rag-demo
-   ```
-
-3. Make sure the Pinecone index exists and uses a vector dimension matching OpenAI's `text-embedding-3-small` output (`1536` dimensions).
-
-## Running the application
-
-Both the backend and frontend must be running at the same time.
-
-### 1. Start the backend
-
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-The API will be available at `http://localhost:8000`.
-
-### 2. Start the frontend
-
-In a separate terminal:
+## Setup & running
 
 ```bash
 cd frontend
@@ -86,60 +51,80 @@ npm install
 npm run dev
 ```
 
-The UI will be available at `http://localhost:5173`.
+Then open the URL Vite prints (default **http://localhost:5173**).
 
-## Using the app
+### Available scripts (run from `frontend/`)
 
-1. Open `http://localhost:5173`.
-2. Upload one or more PDF or TXT files using the sidebar.
-3. Ask questions in the chat window. The app will:
-   - Embed your question with `text-embedding-3-small`
-   - Retrieve the top 10 most relevant chunks from Pinecone
-   - Generate an answer with `gpt-4o` using the retrieved context
+| Command           | What it does                                              |
+|-------------------|-----------------------------------------------------------|
+| `npm run dev`     | Start the Vite dev server with hot reload                 |
+| `npm run build`   | Type-check (`tsc -b`) and build a production bundle to `dist/` |
+| `npm run preview` | Serve the production build locally                        |
+| `npm test`        | Run the Vitest unit tests (cost model + exporters)        |
 
-## API endpoints
-
-| Method | Endpoint      | Description                              |
-|--------|---------------|------------------------------------------|
-| GET    | `/`           | Health check                             |
-| POST   | `/api/upload` | Upload a PDF or TXT document             |
-| POST   | `/api/query`  | Ask a question about uploaded documents  |
-
-### Example: upload a document
+### Production build
 
 ```bash
-curl -X POST http://localhost:8000/api/upload \
-  -F "file=@example.pdf"
+cd frontend
+npm run build      # outputs static assets to frontend/dist/
+npm run preview    # optional: preview the built site
 ```
 
-### Example: query documents
+The contents of `frontend/dist/` are static files and can be hosted on any static host
+(Netlify, Vercel, GitHub Pages, S3, etc.).
 
-```bash
-curl -X POST http://localhost:8000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What is this document about?"}'
+## Project structure
+
+```
+rag-demo/
+├── frontend/                     # the RAG TCO Estimator (this is the app)
+│   ├── index.html
+│   ├── package.json
+│   ├── tailwind.config.js
+│   ├── vite.config.ts
+│   ├── public/
+│   │   └── favicon.svg           # cost-tower mark
+│   └── src/
+│       ├── App.tsx               # tab shell + shared estimate state
+│       ├── components/
+│       │   ├── Hero.tsx, Logo.tsx, Icon.tsx
+│       │   ├── TabExplore.tsx    # Explore (guide, pipeline, token lab, glossary)
+│       │   ├── TabEstimate.tsx   # tile configurator
+│       │   ├── TabPropose.tsx    # proposal preview + exports
+│       │   ├── TabBuildVsBuy.tsx, TabScale.tsx
+│       │   └── estimate/         # tiles, stat cards, summary panel, misc editor
+│       └── lib/
+│           ├── types.ts          # Inputs, Overrides, CostBreakdown, misc
+│           ├── rates.ts          # illustrative rate tables (June 2026)
+│           ├── costs.ts          # pure cost model  (+ costs.test.ts)
+│           ├── scale.ts          # scale/break-even  (+ scale.test.ts)
+│           ├── exploreContent.ts # Explore copy, tables, glossary, pipeline
+│           ├── proposal.ts       # shared proposal model  (+ proposal.test.ts)
+│           ├── exportPdf.ts      # jsPDF proposal export
+│           └── exportXlsx.ts     # SheetJS proposal export
+└── Prompts/                      # design/build prompts used to create the app
 ```
 
 ## Testing
 
-There are currently no automated test suites in the repository. To verify the application:
+```bash
+cd frontend
+npm test
+```
 
-1. Run the backend health check:
+The suite (Vitest) covers the pure cost model (`costs.ts`), the scale/break-even math
+(`scale.ts`), and the proposal model + PDF/XLSX generation (`proposal.ts`).
 
-   ```bash
-   curl http://localhost:8000/
-   ```
+## How the estimate works (at a glance)
 
-   Expected response:
-
-   ```json
-   {"status": "ok"}
-   ```
-
-2. Upload a sample document and query it with the `curl` examples above.
+- Edit inputs on **Estimate**; the monthly total, annual (×12), and one-time setup update live.
+- Any tile can be set to **＋ Custom** to hand-enter rates that feed the model; the ✎ on a
+  summary row pins that bucket to a flat $/mo; **＋ Add cost** appends monthly/one-time misc lines.
+- **Propose** reads the exact same state and never recomputes differently — the on-screen
+  preview, the PDF, and the Excel workbook all show identical numbers.
 
 ## Notes
 
-- The backend is configured to accept CORS requests only from `http://localhost:5173`.
-- Vite proxies `/api` requests to `http://localhost:8000` during local development, so the frontend calls appear to be same-origin.
-- Uploaded chunks are batched in groups of 100 when upserting to Pinecone.
+- Frontend-only: no server, no persistence, no network calls for the estimate or exports.
+- Figures are planning estimates dated June 2026; each Explore topic links to the provider's
+  official pricing page so you can verify current rates.

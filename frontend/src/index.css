@@ -6,6 +6,109 @@
   color-scheme: light;
 }
 
+/* -------------------------------------------------------------------------
+   Hero animations. Pure CSS; animate only background-position / opacity /
+   transform. All wrapped in prefers-reduced-motion below.
+   ------------------------------------------------------------------------- */
+
+/* Slow petrol → petrol-light → amber text shimmer (wordmark "RAG" + "estimator"). */
+.rag-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    #0e6e6e 0%,
+    #2da0a0 28%,
+    #c2790c 50%,
+    #2da0a0 72%,
+    #0e6e6e 100%
+  );
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: ragShimmer 6s ease-in-out infinite;
+}
+/* Offset so "RAG" and "estimator" shimmer independently. */
+.rag-shimmer--offset {
+  animation-delay: -3s;
+}
+
+@keyframes ragShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Stage reveal: ink-soft → petrol (gentle fade/scale in), hold, fade back.
+   Three stages share one 4.2s loop, staggered by animation-delay. */
+.stage-emph {
+  display: inline-block;
+  color: rgba(21, 36, 43, 0.55);
+  animation: stageEmph 4.2s ease-in-out infinite;
+  will-change: transform, color;
+}
+@keyframes stageEmph {
+  0% {
+    color: rgba(21, 36, 43, 0.55);
+    transform: scale(1);
+  }
+  5% {
+    color: #0e6e6e;
+    transform: scale(1.07);
+  }
+  24% {
+    color: #0e6e6e;
+    transform: scale(1.07);
+  }
+  33% {
+    color: rgba(21, 36, 43, 0.55);
+    transform: scale(1);
+  }
+  100% {
+    color: rgba(21, 36, 43, 0.55);
+    transform: scale(1);
+  }
+}
+
+/* Flow arrows pulse gently in sync with the stage cycle. */
+.stage-arrow {
+  animation: stageArrowPulse 4.2s ease-in-out infinite;
+}
+@keyframes stageArrowPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rag-shimmer {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: #0e6e6e;
+    color: #0e6e6e;
+  }
+  .stage-emph {
+    animation: none;
+    color: rgba(21, 36, 43, 0.55);
+    transform: none;
+  }
+  .stage-arrow {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
 html,
 body,
 #root {
@@ -25,6 +128,43 @@ body {
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Explore tab: smooth fade/slide when switching topics */
+@keyframes exploreFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.explore-enter {
+  animation: exploreFade 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .explore-enter {
+    animation: none;
+  }
+}
+
+/* Explore tab: brief highlight on an Estimate field arrived at via a preset */
+@keyframes fieldFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(45, 160, 160, 0);
+  }
+  25% {
+    box-shadow: 0 0 0 3px rgba(45, 160, 160, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(45, 160, 160, 0);
+  }
+}
+.field-flash {
+  border-radius: 0.75rem;
+  animation: fieldFlash 1.8s ease-out;
 }
 
 /* Custom range slider styling for log sliders */

@@ -2,8 +2,10 @@
 // All formulas come from the RAG TCO Estimator spec.
 
 import type {
+  BucketKey,
   CostBreakdown,
   DeploymentKey,
+  EstimateExtras,
   Inputs,
 } from './types';
 import {
@@ -43,18 +45,26 @@ export function getDeployment(inputs: Pick<Inputs, 'vectorDb'>): DeploymentKey {
  * `total` = sum of the 8 buckets. `annual` = `total * 12`.
  * `setup` = full (un-amortized) ingestion + embedding cost; not in `total`.
  */
-export function calculateCosts(inputs: Inputs): CostBreakdown {
+export function calculateCosts(
+  inputs: Inputs,
+  extras?: EstimateExtras,
+): CostBreakdown {
   const {
     documents,
     avgDocSizePages,
+    avgDocSizePagesCustom,
     tokensPerPage,
+    tokensPerPageCustom,
     chunkSize,
     chunkOverlap,
     requestsPerMonth,
     topK,
+    rerankCandidatePool,
     systemPromptTokens,
+    systemPromptTokensCustom,
     userQueryTokens,
     outputTokens,
+    cacheTTL,
     cacheHitRate,
     genModel,
     embedModel,
@@ -62,110 +72,177 @@ export function calculateCosts(inputs: Inputs): CostBreakdown {
     vectorDb,
     cloudProvider,
     crossRegion,
+    natSurcharge,
+    crossAz,
     reindexFreq,
     teamSize,
+    observability,
   } = inputs;
+
+  const overrides = extras?.overrides ?? {};
+  const misc = extras?.misc ?? [];
 
   // ------------------------------------------------------------------
   // Numeric conversions for the union-typed inputs.
   // ------------------------------------------------------------------
-  const pages = documents * DOC_SIZE_PAGES[avgDocSizePages];
-  const tokensPerPageNum = TOKENS_PER_PAGE[tokensPerPage];
+  const pagesPerDoc =
+    avgDocSizePages === 'custom'
+      ? Math.max(0, avgDocSizePagesCustom ?? DOC_SIZE_PAGES.standard)
+      : DOC_SIZE_PAGES[avgDocSizePages];
+  const pages = documents * pagesPerDoc;
+  const tokensPerPageNum =
+    tokensPerPage === 'custom'
+      ? Math.max(0, tokensPerPageCustom ?? TOKENS_PER_PAGE.standard)
+      : TOKENS_PER_PAGE[tokensPerPage];
   const chunkSizeNum = Number(chunkSize);
   const chunkOverlapNum = Number(chunkOverlap);
   const topKNum = Number(topK);
-  const systemPromptNum = Number(systemPromptTokens);
+  const poolNum = Number(rerankCandidatePool);
+  const systemPromptNum =
+    systemPromptTokens === 'custom'
+      ? Math.max(0, systemPromptTokensCustom ?? 1500)
+      : Number(systemPromptTokens);
   const cacheHitRateNum = Number(cacheHitRate);
   const reindexFreqNum = Number(reindexFreq);
 
+  // A reranker (preset or custom) narrows a wider candidate pool to top-K.
+  const rerankActive = reranker !== 'none' || overrides.reranker != null;
+
   // ------------------------------------------------------------------
   // Corpus / embedding derivations shared by multiple buckets.
+  // Embedding rate + dimension honor a custom override when present.
   // ------------------------------------------------------------------
   const rawTokens = pages * tokensPerPageNum;
   const embedTokens = rawTokens * (1 + chunkOverlapNum);
   const vectors = embedTokens / chunkSizeNum;
-  const dim = RATES.embedModels[embedModel].dim;
+  const dim = overrides.embedModel?.dim ?? RATES.embedModels[embedModel].dim;
   const storageGB =
     (vectors * dim * RATES.bytesPerToken * RATES.hnswOverhead) / 1e9;
 
   const retrieved = topKNum * chunkSizeNum;
   const reqs = requestsPerMonth;
-  const embedPerM = RATES.embedModels[embedModel].perM;
+  const embedPerM = overrides.embedModel?.perM ?? RATES.embedModels[embedModel].perM;
+
+  // Reads fetch the wider candidate pool when reranking, else just top-K.
+  const readsPerReq = rerankActive ? poolNum : topKNum;
 
   // ------------------------------------------------------------------
-  // 1. inference
+  // 1. inference (generation only; reranking is its own bucket)
   //    inTok = systemPromptTokens + retrieved + userQueryTokens
-  //    effIn = inTok * (1 - cacheHitRate * cacheableFractionOfInput)
-  //    API:           gen = reqs * (effIn/1e6 * in + outputTokens/1e6 * out)
-  //    open-weight:   gpu = ceil(reqs*(effIn+outputTokens) / gpuCapacityReqTokens) * gpuStep
-  //    + reranker:    reqs/1000 * rerankerPer1k when reranker != 'none'
+  //    Caching (unless TTL 'off') discounts the cacheable prefix on hits and
+  //    adds a write surcharge on misses scaled by the TTL multiplier.
   // ------------------------------------------------------------------
   const gen = RATES.genModels[genModel];
+  const genOverride = overrides.genModel;
   const baseInputTokens = systemPromptNum + retrieved + userQueryTokens;
-  const cachedFraction = cacheHitRateNum * RATES.cacheableFractionOfInput;
+
+  const cachingOn = cacheTTL !== 'off';
+  const cachedFraction = cachingOn
+    ? cacheHitRateNum * RATES.cacheableFractionOfInput
+    : 0;
   const effectiveInputTokens = baseInputTokens * (1 - cachedFraction);
 
+  // Per-request cache-write surcharge (API models only): the cacheable prefix
+  // is (re)written on the miss fraction, billed at (mult - 1) x the input rate.
+  const ttlMult = RATES.cacheWriteMult[cacheTTL];
+  const cacheablePrefix = baseInputTokens * RATES.cacheableFractionOfInput;
+  const writeSurchargeTokens = cachingOn
+    ? cacheablePrefix * (1 - cacheHitRateNum) * Math.max(0, ttlMult - 1)
+    : 0;
+
   let genCost: number;
-  if ('gpuStep' in gen) {
+  if (genOverride?.gpuMonthly != null) {
+    // Custom self-host style generation: flat monthly.
+    genCost = genOverride.gpuMonthly;
+  } else if (genOverride && (genOverride.in != null || genOverride.out != null)) {
+    // Custom API rates.
+    const inRate = genOverride.in ?? 0;
+    const outRate = genOverride.out ?? 0;
+    genCost =
+      reqs *
+      (((effectiveInputTokens + writeSurchargeTokens) / 1_000_000) * inRate +
+        (outputTokens / 1_000_000) * outRate);
+  } else if ('gpuStep' in gen) {
     // Open-weight: total request-tokens (in + out) drives GPU step count.
     const totalReqTokens = reqs * (effectiveInputTokens + outputTokens);
     genCost = Math.ceil(totalReqTokens / gen.gpuCapacityReqTokens) * gen.gpuStep;
   } else {
     genCost =
       reqs *
-      ((effectiveInputTokens / 1_000_000) * gen.in +
+      (((effectiveInputTokens + writeSurchargeTokens) / 1_000_000) * gen.in +
         (outputTokens / 1_000_000) * gen.out);
   }
-
-  const rerankerCost =
-    reranker !== 'none' ? (reqs / 1000) * RATES.rerankerPer1k : 0;
-  const inference = genCost + rerankerCost;
+  const inference = genCost;
 
   // ------------------------------------------------------------------
-  // 2. vector (branch on DB per spec)
+  // 1b. reranking (per-1k searches, or custom per1k / flat GPU monthly)
+  // ------------------------------------------------------------------
+  let reranking: number;
+  if (overrides.reranker?.gpuMonthly != null) {
+    reranking = overrides.reranker.gpuMonthly;
+  } else if (overrides.reranker?.per1k != null) {
+    reranking = (reqs / 1000) * overrides.reranker.per1k;
+  } else if (reranker !== 'none') {
+    reranking = (reqs / 1000) * RATES.rerankerPer1k;
+  } else {
+    reranking = 0;
+  }
+
+  // ------------------------------------------------------------------
+  // 2. vector (custom override, else branch on DB per spec)
   // ------------------------------------------------------------------
   let vector: number;
-  switch (vectorDb) {
-    case 'pinecone':
-      vector =
-        RATES.vectorDbs.pinecone.base +
-        storageGB * RATES.vectorDbs.pinecone.perGB +
-        ((reqs * topKNum) / 1_000_000) * RATES.vectorDbs.pinecone.readsPerM +
-        (vectors / 1_000_000) * RATES.vectorDbs.pinecone.writesPerM;
-      break;
-    case 'weaviate':
-      vector =
-        RATES.vectorDbs.weaviate.base +
-        ((vectors * dim) / 1_000_000) * RATES.vectorDbs.weaviate.perMdim;
-      break;
-    case 'qdrant-cloud':
-      vector =
-        RATES.vectorDbs['qdrant-cloud'].base +
-        storageGB * RATES.vectorDbs['qdrant-cloud'].perGB;
-      break;
-    case 'pgvector-rds':
-      vector =
-        RATES.vectorDbs['pgvector-rds'].base +
-        storageGB * RATES.vectorDbs['pgvector-rds'].perGB;
-      break;
-    case 'selfhost': {
-      const d = RATES.vectorDbs.selfhost;
-      vector = Math.ceil(storageGB / d.nodeGBcap) * d.nodeCost;
-      break;
+  const vdbOverride = overrides.vectorDb;
+  if (vdbOverride?.flatMonthly != null) {
+    vector = vdbOverride.flatMonthly;
+  } else if (vdbOverride) {
+    // Advanced custom: Pinecone-style base + storage + reads + writes.
+    vector =
+      (vdbOverride.base ?? 0) +
+      storageGB * (vdbOverride.perGB ?? 0) +
+      ((reqs * readsPerReq) / 1_000_000) * (vdbOverride.readsPerM ?? 0) +
+      (vectors / 1_000_000) * (vdbOverride.writesPerM ?? 0);
+  } else {
+    switch (vectorDb) {
+      case 'pinecone':
+        vector =
+          RATES.vectorDbs.pinecone.base +
+          storageGB * RATES.vectorDbs.pinecone.perGB +
+          ((reqs * readsPerReq) / 1_000_000) * RATES.vectorDbs.pinecone.readsPerM +
+          (vectors / 1_000_000) * RATES.vectorDbs.pinecone.writesPerM;
+        break;
+      case 'weaviate':
+        vector =
+          RATES.vectorDbs.weaviate.base +
+          ((vectors * dim) / 1_000_000) * RATES.vectorDbs.weaviate.perMdim;
+        break;
+      case 'qdrant-cloud':
+        vector =
+          RATES.vectorDbs['qdrant-cloud'].base +
+          storageGB * RATES.vectorDbs['qdrant-cloud'].perGB;
+        break;
+      case 'pgvector-rds':
+        vector =
+          RATES.vectorDbs['pgvector-rds'].base +
+          storageGB * RATES.vectorDbs['pgvector-rds'].perGB;
+        break;
+      case 'selfhost': {
+        const d = RATES.vectorDbs.selfhost;
+        vector = Math.ceil(storageGB / d.nodeGBcap) * d.nodeCost;
+        break;
+      }
     }
   }
 
   // ------------------------------------------------------------------
   // 3. embed (one-time, amortized monthly) + setup (full one-time)
-  //    bucket = (embedTokens/1e6 * perM + pages * parsePerPage) / amortMonths
   // ------------------------------------------------------------------
   const embedOneTime =
     (embedTokens / 1_000_000) * embedPerM + pages * RATES.parsePerPage;
   const embed = embedOneTime / RATES.amortMonths;
-  const setup = embedOneTime;
 
   // ------------------------------------------------------------------
-  // 4. reindex: reindexFreq * (embedTokens/1e6 * perM + pages * parsePerPage)
+  // 4. reindex
   // ------------------------------------------------------------------
   const reindex = reindexFreqNum * embedOneTime;
 
@@ -175,23 +252,24 @@ export function calculateCosts(inputs: Inputs): CostBreakdown {
   const infra = RATES.infraBase + (reqs / 1_000_000) * 40;
 
   // ------------------------------------------------------------------
-  // 6. obs: obsBase + inference * 0.05
+  // 6. obs: obsBase + 5% of generation+reranking (0 when toggled off)
   // ------------------------------------------------------------------
-  const obs = RATES.obsBase + inference * 0.05;
+  const obs = observability ? RATES.obsBase + (inference + reranking) * 0.05 : 0;
 
   // ------------------------------------------------------------------
-  // 7. network
-  //    egressBytesPerReq = outputTokens*bytesPerToken
-  //                       + (crossRegion ? retrieved*bytesPerToken : 0)
-  //    egressGB = reqs * egressBytesPerReq / 1e9
-  //    net = max(0, egressGB - freeGB) * perGB
+  // 7. network: internet egress (tiered free allowance) + optional
+  //    NAT / cross-AZ surcharges applied to all egress GB.
   // ------------------------------------------------------------------
-  const egress = RATES.egress[cloudProvider];
+  const egress = overrides.cloud ?? RATES.egress[cloudProvider];
   const egressBytesPerReq =
     outputTokens * RATES.bytesPerToken +
     (crossRegion ? retrieved * RATES.bytesPerToken : 0);
   const totalEgressGB = (reqs * egressBytesPerReq) / 1e9;
-  const network = Math.max(0, totalEgressGB - egress.freeGB) * egress.perGB;
+  const internetEgress = Math.max(0, totalEgressGB - egress.freeGB) * egress.perGB;
+  const surcharge =
+    totalEgressGB *
+    ((natSurcharge ? RATES.natPerGB : 0) + (crossAz ? RATES.crossAzPerGB : 0));
+  const network = internetEgress + surcharge;
 
   // ------------------------------------------------------------------
   // 8. labor
@@ -199,12 +277,19 @@ export function calculateCosts(inputs: Inputs): CostBreakdown {
   const deployment = getDeployment(inputs);
   const labor = teamSize * RATES.laborMonthly * RATES.maintFrac[deployment];
 
-  const total =
-    inference + vector + embed + reindex + infra + obs + network + labor;
-  const annual = total * 12;
+  // ------------------------------------------------------------------
+  // Misc line items + per-bucket flat overrides.
+  // ------------------------------------------------------------------
+  const miscMonthly = misc
+    .filter((m) => m.cadence === 'monthly')
+    .reduce((s, m) => s + (Number.isFinite(m.amount) ? m.amount : 0), 0);
+  const miscOneTime = misc
+    .filter((m) => m.cadence === 'oneTime')
+    .reduce((s, m) => s + (Number.isFinite(m.amount) ? m.amount : 0), 0);
 
-  return {
+  const computed: Record<BucketKey, number> = {
     inference,
+    reranking,
     vector,
     embed,
     reindex,
@@ -212,6 +297,33 @@ export function calculateCosts(inputs: Inputs): CostBreakdown {
     obs,
     network,
     labor,
+  };
+  const bucketPins = overrides.buckets ?? {};
+  (Object.keys(bucketPins) as BucketKey[]).forEach((k) => {
+    const pin = bucketPins[k];
+    if (pin != null && Number.isFinite(pin)) computed[k] = pin;
+  });
+
+  const bucketsTotal = (Object.keys(computed) as BucketKey[]).reduce(
+    (s, k) => s + computed[k],
+    0,
+  );
+  const total = bucketsTotal + miscMonthly;
+  const annual = total * 12;
+  const setup = embedOneTime + miscOneTime;
+
+  return {
+    inference: computed.inference,
+    reranking: computed.reranking,
+    vector: computed.vector,
+    embed: computed.embed,
+    reindex: computed.reindex,
+    infra: computed.infra,
+    obs: computed.obs,
+    network: computed.network,
+    labor: computed.labor,
+    miscMonthly,
+    miscOneTime,
     total,
     annual,
     setup,

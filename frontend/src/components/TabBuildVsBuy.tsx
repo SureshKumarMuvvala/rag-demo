@@ -12,6 +12,7 @@ interface TabBuildVsBuyProps {
 
 type BucketKey =
   | 'inference'
+  | 'reranking'
   | 'vector'
   | 'embed'
   | 'reindex'
@@ -27,6 +28,7 @@ interface BucketMeta {
 
 const BUCKETS: BucketMeta[] = [
   { key: 'inference', label: 'Inference' },
+  { key: 'reranking', label: 'Reranking' },
   { key: 'vector', label: 'Vector DB' },
   { key: 'embed', label: 'Embedding' },
   { key: 'reindex', label: 'Re-indexing' },

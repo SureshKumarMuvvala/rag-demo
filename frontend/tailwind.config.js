@@ -3,10 +3,19 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      screens: {
+        // Header: show the middle tagline / full price stamp at/above 720px.
+        hdr: '720px',
+        // Explore tab: rail vs. horizontal chip bar threshold (per spec: <820px).
+        nav: '820px',
+        // Estimate tab: 3-pane vs. stacked threshold (per spec: <960px).
+        wide: '960px',
+      },
       colors: {
         ink: '#15242B',
         petrol: '#0E6E6E',
         'petrol-light': '#2DA0A0',
+        'deep-petrol': '#0A5252',
         amber: '#C2790C',
         'value-green': '#2F7D5B',
         alert: '#B5483A',

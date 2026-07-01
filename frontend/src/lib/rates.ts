@@ -68,6 +68,15 @@ export const RATES = {
   // ---- Scalar constants --------------------------------------------------
   /** Bytes per token (FP32 vector storage). */
   bytesPerToken: 4,
+  /** NAT Gateway surcharge on egress ($/GB). */
+  natPerGB: 0.045,
+  /** Cross-AZ traffic surcharge on egress ($/GB, both ways combined). */
+  crossAzPerGB: 0.02,
+  /**
+   * Cache-write multipliers vs. the input rate, keyed by TTL tier.
+   * 'off' disables caching (no hit discount, no write surcharge).
+   */
+  cacheWriteMult: { off: 0, '5min': 1.25, '1hour': 2 } as const,
   /** USD per page for parsing / extraction. */
   parsePerPage: 0.0012,
   /** Multiplier applied to raw vector storage to account for the HNSW index. */

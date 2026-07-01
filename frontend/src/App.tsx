@@ -1,10 +1,16 @@
-import { useState } from 'react';
-import Header from './components/Header';
+import { Fragment, useRef, useState } from 'react';
+import Hero from './components/Hero';
+import Icon from './components/Icon';
+import TabExplore from './components/TabExplore';
 import TabEstimate from './components/TabEstimate';
+import TabPropose from './components/TabPropose';
 import TabBuildVsBuy from './components/TabBuildVsBuy';
 import TabScale from './components/TabScale';
 import { DEFAULT_INPUTS } from './lib/types';
-import type { Inputs } from './lib/types';
+import type { Inputs, MiscItem, Overrides } from './lib/types';
+import { defaultProposalMeta, PRICES_AS_OF } from './lib/proposal';
+import type { ProposalMeta } from './lib/proposal';
+import type { PresetField } from './lib/exploreContent';
 
 interface TabDef {
   index: number;
@@ -13,14 +19,44 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { index: 0, key: 'estimate', label: 'Estimate' },
-  { index: 1, key: 'buildvsbuy', label: 'Build vs. Buy' },
-  { index: 2, key: 'scale', label: 'Scale & Break-even' },
+  { index: 0, key: 'explore', label: 'Explore' },
+  { index: 1, key: 'estimate', label: 'Estimate' },
+  { index: 2, key: 'propose', label: 'Propose' },
+  { index: 3, key: 'buildvsbuy', label: 'Build vs. Buy' },
+  { index: 4, key: 'scale', label: 'Scale & Break-even' },
 ];
+
+const ESTIMATE_INDEX = 1;
+// A petrol flow arrow precedes these tab indices (Explore → Estimate → Propose).
+const FLOW_ARROW_BEFORE = new Set([1, 2]);
+
+/** Explore preset fields → the override key to clear when a preset is applied. */
+const PRESET_TO_OVERRIDE: Partial<Record<PresetField, keyof Overrides>> = {
+  genModel: 'genModel',
+  embedModel: 'embedModel',
+  vectorDb: 'vectorDb',
+  reranker: 'reranker',
+  cloudProvider: 'cloud',
+};
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default function App() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS);
+  const [overrides, setOverrides] = useState<Overrides>({});
+  const [misc, setMisc] = useState<MiscItem[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
+  const [exploreTopic, setExploreTopic] = useState<string>('overview');
+  const [presetField, setPresetField] = useState<PresetField | null>(null);
+  const [presetNonce, setPresetNonce] = useState<number>(0);
+  const [proposalMeta, setProposalMeta] = useState<ProposalMeta>(() =>
+    defaultProposalMeta(todayISO()),
+  );
+
+  const miscCounter = useRef(0);
+  const nextMiscId = () => `misc-${miscCounter.current++}`;
 
   const handleInputChange = (patch: Partial<Inputs>) =>
     setInputs((prev) => ({ ...prev, ...patch }));
@@ -28,59 +64,128 @@ export default function App() {
   const handleQueryChange = (q: number) =>
     setInputs((prev) => ({ ...prev, requestsPerMonth: q }));
 
+  const handleMetaChange = (patch: Partial<ProposalMeta>) =>
+    setProposalMeta((prev) => ({ ...prev, ...patch }));
+
+  const handleApplyPreset = (patch: Partial<Inputs>, field: PresetField) => {
+    if (Object.keys(patch).length > 0) {
+      setInputs((prev) => ({ ...prev, ...patch }));
+    }
+    const ovKey = PRESET_TO_OVERRIDE[field];
+    if (ovKey) {
+      setOverrides((prev) => {
+        if (prev[ovKey] == null) return prev;
+        const next = { ...prev };
+        delete next[ovKey];
+        return next;
+      });
+    }
+    setActiveIndex(ESTIMATE_INDEX);
+    setPresetField(field);
+    setPresetNonce((n) => n + 1);
+  };
+
+  const handleOpenExplore = (topicId: string) => {
+    setExploreTopic(topicId);
+    setActiveIndex(0);
+  };
+
   return (
     <div className="min-h-full rag-scroll">
-      <div className="mx-auto w-full max-w-7xl px-5 py-8 md:py-10">
-        <Header />
+      <div className="mx-auto w-full max-w-7xl px-5 py-4 md:py-5">
+        <Hero />
 
-        {/* Segmented tab control */}
-        <div
-          role="tablist"
-          aria-label="Estimator tabs"
-          className="mt-8 inline-flex rounded-2xl border border-borders bg-surfaces p-1 shadow-card"
-        >
-          {TABS.map((tab) => {
-            const active = tab.index === activeIndex;
-            return (
-              <button
-                key={tab.key}
-                role="tab"
-                type="button"
-                aria-selected={active}
-                aria-controls={`tab-panel-${tab.key}`}
-                id={`tab-${tab.key}`}
-                tabIndex={active ? 0 : -1}
-                onClick={() => setActiveIndex(tab.index)}
-                onKeyDown={(e) => handleTabKeyDown(e, tab.index, setActiveIndex)}
-                className={[
-                  'flex items-center gap-2 rounded-xl px-4 py-2 font-display text-sm font-medium transition-colors',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light focus-visible:ring-offset-2 focus-visible:ring-offset-page-bg',
-                  active
-                    ? 'bg-petrol text-white shadow-sm'
-                    : 'text-ink hover:bg-tinted-surface',
-                ].join(' ')}
-              >
-                <span
-                  className={[
-                    'font-mono text-[11px] uppercase tracking-wider',
-                    active ? 'text-white/80' : 'text-petrol',
-                  ].join(' ')}
-                >
-                  {String(tab.index + 1).padStart(2, '0')}
-                </span>
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        {/* Tab bar — real navigation, directly below the hero. Centered on
+            desktop with the relocated "prices as of" stamp at the far right;
+            stacks (stamp below) on small screens. */}
+        <div className="mt-4 grid grid-cols-1 items-center gap-1.5 sm:grid-cols-[1fr_auto_1fr]">
+          <div aria-hidden="true" className="hidden sm:block" />
+          <div className="mx-auto w-fit max-w-full overflow-x-auto rag-scroll pb-1">
+            <div
+              role="tablist"
+              aria-label="Estimator tabs"
+              className="inline-flex flex-nowrap items-center gap-0.5 rounded-2xl border border-borders bg-surfaces p-1 shadow-card"
+            >
+            {TABS.map((tab) => {
+              const active = tab.index === activeIndex;
+              return (
+                <Fragment key={tab.key}>
+                  {FLOW_ARROW_BEFORE.has(tab.index) && (
+                    <span aria-hidden="true" className="px-0.5 text-petrol/60">
+                      <Icon name="arrow-right" className="h-4 w-4" />
+                    </span>
+                  )}
+                  <button
+                    role="tab"
+                    type="button"
+                    aria-selected={active}
+                    aria-controls={`tab-panel-${tab.key}`}
+                    id={`tab-${tab.key}`}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => setActiveIndex(tab.index)}
+                    onKeyDown={(e) => handleTabKeyDown(e, tab.index, setActiveIndex)}
+                    className={[
+                      'flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 font-display text-sm font-medium transition-colors',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light focus-visible:ring-offset-2 focus-visible:ring-offset-page-bg',
+                      active ? 'bg-petrol text-white shadow-sm' : 'text-ink hover:bg-tinted-surface',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={[
+                        'font-mono text-[11px] uppercase tracking-wider',
+                        active ? 'text-white/80' : 'text-petrol',
+                      ].join(' ')}
+                    >
+                      {String(tab.index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="whitespace-nowrap">{tab.label}</span>
+                  </button>
+                </Fragment>
+              );
+            })}
+            </div>
+          </div>
+          <div className="text-center font-mono text-[10px] tracking-wider text-ink/70 sm:pr-1 sm:text-right">
+            Prices as of {PRICES_AS_OF} illustrative *
+          </div>
         </div>
 
         {/* Active tab panel */}
-        <div className="mt-6">
+        <div className="mt-4">
           {activeIndex === 0 && (
-            <TabEstimate inputs={inputs} onChange={handleInputChange} />
+            <TabExplore
+              inputs={inputs}
+              selectedId={exploreTopic}
+              onSelectTopic={setExploreTopic}
+              onApplyPreset={handleApplyPreset}
+              onWriteInputs={handleInputChange}
+            />
           )}
-          {activeIndex === 1 && <TabBuildVsBuy inputs={inputs} />}
+          {activeIndex === 1 && (
+            <TabEstimate
+              inputs={inputs}
+              onChange={handleInputChange}
+              overrides={overrides}
+              onOverridesChange={setOverrides}
+              misc={misc}
+              onMiscChange={setMisc}
+              nextMiscId={nextMiscId}
+              onOpenExplore={handleOpenExplore}
+              presetField={presetField}
+              presetNonce={presetNonce}
+            />
+          )}
           {activeIndex === 2 && (
+            <TabPropose
+              inputs={inputs}
+              overrides={overrides}
+              misc={misc}
+              meta={proposalMeta}
+              onMetaChange={handleMetaChange}
+            />
+          )}
+          {activeIndex === 3 && <TabBuildVsBuy inputs={inputs} />}
+          {activeIndex === 4 && (
             <TabScale inputs={inputs} onQueryChange={handleQueryChange} />
           )}
         </div>

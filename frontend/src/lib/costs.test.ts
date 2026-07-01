@@ -91,6 +91,96 @@ describe('calculateCosts', () => {
     expect(RATES.egress.r2.perGB).toBe(0);
   });
 
+  it('reranking is its own bucket and does not alter generation (inference)', () => {
+    const none = calculateCosts({ ...DEFAULT_INPUTS, reranker: 'none' });
+    const cohere = calculateCosts({ ...DEFAULT_INPUTS, reranker: 'cohere' });
+    expect(none.reranking).toBe(0);
+    expect(cohere.reranking).toBeCloseTo(
+      (DEFAULT_INPUTS.requestsPerMonth / 1000) * RATES.rerankerPer1k,
+      6,
+    );
+    // Generation cost is unaffected by the reranker choice.
+    expect(cohere.inference).toBeCloseTo(none.inference, 6);
+    // The reranking bucket flows into the total (obs also tracks 5% of it).
+    expect(cohere.total).toBeGreaterThan(none.total + cohere.reranking - 1e-6);
+  });
+
+  it('cacheTTL "off" disables the hit-rate discount', () => {
+    const off = calculateCosts({ ...DEFAULT_INPUTS, cacheTTL: 'off', cacheHitRate: '0.9' });
+    const on = calculateCosts({ ...DEFAULT_INPUTS, cacheTTL: '5min', cacheHitRate: '0.9' });
+    expect(off.inference).toBeGreaterThan(on.inference);
+  });
+
+  it('observability toggle zeroes the obs bucket', () => {
+    const on = calculateCosts({ ...DEFAULT_INPUTS, observability: true });
+    const offObs = calculateCosts({ ...DEFAULT_INPUTS, observability: false });
+    expect(offObs.obs).toBe(0);
+    expect(on.obs).toBeGreaterThan(0);
+  });
+
+  it('NAT / cross-AZ surcharges increase the network bucket', () => {
+    const base = {
+      ...DEFAULT_INPUTS,
+      crossRegion: true,
+      requestsPerMonth: 1_000_000,
+      cloudProvider: 'gcp' as const,
+    };
+    const plain = calculateCosts(base);
+    const nat = calculateCosts({ ...base, natSurcharge: true });
+    const az = calculateCosts({ ...base, crossAz: true });
+    expect(nat.network).toBeGreaterThan(plain.network);
+    expect(az.network).toBeGreaterThan(plain.network);
+  });
+
+  it('custom overrides feed the cost model', () => {
+    const base = calculateCosts(DEFAULT_INPUTS);
+
+    // Generation rate override raises inference.
+    const genO = calculateCosts(DEFAULT_INPUTS, {
+      overrides: { genModel: { in: 100, out: 100 } },
+    });
+    expect(genO.inference).toBeGreaterThan(base.inference);
+
+    // Vector flat-monthly override replaces the bucket directly.
+    const vecO = calculateCosts(DEFAULT_INPUTS, {
+      overrides: { vectorDb: { flatMonthly: 42 } },
+    });
+    expect(vecO.vector).toBe(42);
+
+    // Cloud override changes the egress rate used for network.
+    const cloudBase = calculateCosts({
+      ...DEFAULT_INPUTS,
+      crossRegion: true,
+      requestsPerMonth: 1_000_000,
+    });
+    const cloudO = calculateCosts(
+      { ...DEFAULT_INPUTS, crossRegion: true, requestsPerMonth: 1_000_000 },
+      { overrides: { cloud: { perGB: 1, freeGB: 0 } } },
+    );
+    expect(cloudO.network).toBeGreaterThan(cloudBase.network);
+  });
+
+  it('a flat bucket pin replaces the computed bucket value', () => {
+    const pinned = calculateCosts(DEFAULT_INPUTS, {
+      overrides: { buckets: { labor: 1234 } },
+    });
+    expect(pinned.labor).toBe(1234);
+  });
+
+  it('misc line items flow into total (monthly) and setup (one-time)', () => {
+    const base = calculateCosts(DEFAULT_INPUTS);
+    const withMisc = calculateCosts(DEFAULT_INPUTS, {
+      misc: [
+        { id: 'a', label: 'CDN', amount: 500, cadence: 'monthly' },
+        { id: 'b', label: 'Audit', amount: 9000, cadence: 'oneTime' },
+      ],
+    });
+    expect(withMisc.miscMonthly).toBe(500);
+    expect(withMisc.miscOneTime).toBe(9000);
+    expect(withMisc.total).toBeCloseTo(base.total + 500, 6);
+    expect(withMisc.setup).toBeCloseTo(base.setup + 9000, 6);
+  });
+
   it('setup equals the un-amortized ingestion + embedding cost and is not in total', () => {
     const result = calculateCosts(DEFAULT_INPUTS);
 
