@@ -278,22 +278,19 @@ function TopicDetail({
 
 function PipelineDiagram({ selectTopic }: { selectTopic: (id: string) => void }) {
   return (
-    <div className="rounded-xl border border-borders bg-tinted-surface/40 p-4">
-      <div className="flex flex-col items-stretch gap-2 nav:flex-row nav:items-center nav:gap-1">
+    <div className="overflow-hidden rounded-xl border border-borders bg-tinted-surface/40 p-4">
+      {/* Wraps to a second line on desktop when it doesn't fit; stacks on mobile.
+          The pipeline ends on "Generate" — no terminal node or trailing arrow. */}
+      <div className="flex flex-col items-stretch gap-2 nav:flex-row nav:flex-wrap nav:items-center nav:justify-center nav:gap-x-1 nav:gap-y-2">
         {PIPELINE.map((node, i) => (
           <div
             key={node.id}
-            className="flex flex-col items-center nav:flex-1 nav:flex-row"
+            className="flex flex-col items-center nav:w-auto nav:flex-row"
           >
             <PipelineStage node={node} onActivate={() => selectTopic(node.id)} />
             {i < PIPELINE.length - 1 && <FlowArrow />}
           </div>
         ))}
-        <FlowArrow />
-        {/* Terminal answer chip (not clickable) */}
-        <div className="flex shrink-0 items-center justify-center rounded-lg border border-value-green/40 bg-value-green/10 px-3 py-2">
-          <span className="font-display text-sm font-medium text-value-green">Answer</span>
-        </div>
       </div>
 
       {/* Cross-cutting overlays */}
@@ -337,7 +334,7 @@ function PipelineStage({
         }
       }}
       className={[
-        'group relative flex w-full items-center gap-2 rounded-xl bg-surfaces px-3 py-2 transition-all',
+        'group relative flex w-full items-center gap-2 rounded-xl bg-surfaces px-3 py-2 transition-all nav:w-auto',
         'cursor-pointer hover:-translate-y-0.5 hover:shadow-card',
         'focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light',
         'hover:border-petrol',
@@ -349,11 +346,13 @@ function PipelineStage({
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-petrol text-white">
         <Icon name={node.icon} className="h-4 w-4" />
       </span>
-      <span className="min-w-0">
-        <span className="block truncate font-display text-[13px] font-medium text-ink">
+      <span>
+        <span className="block whitespace-nowrap font-display text-[13px] font-medium text-ink">
           {node.label}
         </span>
-        <span className="block truncate font-mono text-[10px] text-ink/55">{node.lever}</span>
+        <span className="block whitespace-nowrap font-mono text-[10px] text-ink/55">
+          {node.lever}
+        </span>
       </span>
       {node.optional && (
         <span className="absolute -top-2 right-2 rounded-full bg-amber px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-white">
