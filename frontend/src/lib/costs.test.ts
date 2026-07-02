@@ -182,11 +182,11 @@ describe('calculateCosts', () => {
     expect(withMisc.setup).toBeCloseTo(base.setup + 9000, 6);
   });
 
-  it('setup equals the un-amortized ingestion + embedding cost and is not in total', () => {
+  it('setup is the one-time ingestion + embedding cost and is not in total', () => {
     const result = calculateCosts(DEFAULT_INPUTS);
 
-    // setup should be amortMonths * the monthly embed bucket.
-    expect(result.setup).toBeCloseTo(result.embed * RATES.amortMonths, 6);
+    // One-time corpus ingestion + embedding is a positive cost kept out of total.
+    expect(result.setup).toBeGreaterThan(0);
 
     // total must equal the sum of the recurring buckets (no setup).
     const sumOfBuckets =

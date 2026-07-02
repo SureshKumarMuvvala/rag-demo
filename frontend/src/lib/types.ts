@@ -314,7 +314,7 @@ export const DEFAULT_INPUTS: Inputs = {
   userQueryTokens: 1_000, // Excel "Avg Query Prompt Tokens" = 1000
   outputTokens: 800, // Excel "Avg Output Tokens" = 800
   avgSessionTurns: 3,
-  cacheTTL: '1hour',
+  cacheTTL: '5min', // Excel doesn't model a 1-hour cache-write surcharge
   cacheHitRate: '0.2', // Excel "Prompt Cache Hit Rate" = 0.2
 
   // Models
@@ -328,7 +328,7 @@ export const DEFAULT_INPUTS: Inputs = {
   crossRegion: false,
   natSurcharge: false,
   crossAz: false,
-  reindexFreq: '0.08', // Monthly — government schemes change frequently
+  reindexFreq: '0', // Excel monthly = new-docs ingestion only (no corpus re-index line)
   teamSize: 0, // Excel "SRE DevOps FTE count" = 0 → no labor
   laborMonthly: 0, // no labor cost by default (edit to add loaded cost/engineer)
   maintFrac: 0.22, // managed-stack default (share of an engineer on upkeep)
@@ -347,7 +347,7 @@ export const DEFAULT_INPUTS: Inputs = {
   imageExtractPer: 0.01,
   moderationEnabled: true,
   moderationPerM: 0.15,
-  infraMonthly: 90, // Excel infra nodes: 2×$20 app + $15 LB + $15 Redis + $15 monitoring + $5 S3
+  infraMonthly: 98, // Excel "Cloud Infrastructure Cost" ≈ $98/mo
 };
 
 // Pre-loaded planning-gap misc lines for the Saarthi scenario. Each defaults to

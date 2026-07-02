@@ -3,7 +3,6 @@ import Hero from './components/Hero';
 import TabEstimate from './components/TabEstimate';
 import { DEFAULT_INPUTS, DEFAULT_MISC } from './lib/types';
 import type { Inputs, MiscItem, Overrides } from './lib/types';
-import { PRICES_AS_OF } from './lib/rates';
 import { CurrencyProvider } from './lib/currency';
 
 export default function App() {
@@ -16,7 +15,12 @@ export default function App() {
 
 function AppInner() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS);
-  const [overrides, setOverrides] = useState<Overrides>({});
+  // Seed the default scenario to the Excel's pricing (editable): the LLM is
+  // priced like GPT-4o mini ($0.15/$0.60) and reranking at the Excel's rate.
+  const [overrides, setOverrides] = useState<Overrides>(() => ({
+    genModel: { in: 0.15, out: 0.6, name: 'GPT-4o mini' },
+    reranker: { per1k: 1.8, name: 'Cohere Rerank v3' },
+  }));
   const [misc, setMisc] = useState<MiscItem[]>(() => DEFAULT_MISC.map((m) => ({ ...m })));
 
   const miscCounter = useRef(0);
@@ -27,12 +31,8 @@ function AppInner() {
 
   return (
     <div className="min-h-full rag-scroll">
-      <div className="mx-auto w-full max-w-7xl px-5 py-4 md:py-5">
+      <div className="mx-auto w-full max-w-7xl px-5 pb-4 pt-2 md:pb-5 md:pt-3">
         <Hero />
-
-        <div className="mt-3 text-center font-mono text-[10px] tracking-wider text-ink/60 sm:text-right">
-          Prices as of {PRICES_AS_OF} · illustrative *
-        </div>
 
         <div className="mt-3">
           <TabEstimate

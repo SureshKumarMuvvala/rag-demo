@@ -11,7 +11,7 @@ import type {
 } from '../lib/types';
 import { DEFAULT_INPUTS } from '../lib/types';
 import { calculateCosts, formatNumber } from '../lib/costs';
-import { RATES } from '../lib/rates';
+import { PRICES_AS_OF, RATES } from '../lib/rates';
 import { CONTENT } from '../lib/exploreContent';
 import { formatMoneyShort, useCurrency } from '../lib/currency';
 import Icon from './Icon';
@@ -252,14 +252,14 @@ export default function TabEstimate({
 
   return (
     <div className="flex h-[calc(100vh-13rem)] min-h-[28rem] flex-col gap-3">
-      {/* Dismissible scenario chip */}
+      {/* Dismissible scenario chip (also carries the date/illustrative note) */}
       {showScenario && (
-        <div className="flex shrink-0 items-center justify-between gap-2 rounded-xl border border-petrol/30 bg-tinted-surface/50 px-3 py-1.5">
-          <span className="min-w-0 truncate font-mono text-[11px] text-ink/70">
+        <div className="flex shrink-0 items-start justify-between gap-2 rounded-xl border border-petrol/30 bg-tinted-surface/50 px-3 py-1.5">
+          <span className="min-w-0 font-mono text-[11px] text-ink/70">
             <span className="font-semibold text-petrol">
               Scenario: Saarthi (Government Welfare) Phase-3 pilot
             </span>{' '}
-            — illustrative defaults, edit freely.
+            — illustrative defaults (prices as of {PRICES_AS_OF}), edit freely.
           </span>
           <button
             type="button"

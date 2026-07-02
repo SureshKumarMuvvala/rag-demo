@@ -9,15 +9,15 @@ import Logo from './Logo';
  */
 export default function Hero() {
   return (
-    <section className="flex flex-col items-center pt-2 text-center">
+    <section className="flex flex-col items-center pt-0 text-center">
       {/* LINE 1 — brand cluster, centered */}
-      <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1.5">
+      <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1">
         <Logo variant="horizontal" theme="light" markSize={54} />
       </div>
 
       {/* LINE 2 — one sentence; gently scrolls left↔right (ping-pong marquee).
           No overflow clipping, so the full line is visible throughout the travel. */}
-      <p className="mt-3 max-w-full whitespace-nowrap font-display text-base font-medium text-ink-soft">
+      <p className="mt-1 max-w-full whitespace-nowrap font-display text-base font-medium text-ink-soft">
         <span className="hero-marquee">
           An interactive{' '}
           <span className="gradient-text text-[1.55em] font-bold">Planner</span> for your

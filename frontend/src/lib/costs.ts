@@ -276,8 +276,13 @@ export function calculateCosts(
     Math.max(0, imagesPerDoc || 0) * Math.max(0, imageExtractPer || 0);
   const oneDocCost = embedCostPerDoc + ingestPerDoc;
 
+  // One-time corpus ingestion + embedding (shown as "one-time setup", NOT
+  // amortized into the monthly total — matches the Excel).
   const embedOneTime = oneDocCost * documents;
-  const embed = embedOneTime / RATES.amortMonths;
+
+  // Monthly "Embedding" bucket = embedding the user's queries at query time
+  // (Excel "Query Embedding Cost"), not the amortized corpus embedding.
+  const embed = ((reqs * userQueryTokens) / 1_000_000) * embedPerM;
 
   // ------------------------------------------------------------------
   // 4. reindex: recurring re-index of the corpus fraction + ingesting the
