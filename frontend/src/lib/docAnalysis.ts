@@ -63,7 +63,8 @@ export function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function countTokens(text: string): Promise<number> {
+/** Approximate token count for text — real BPE (gpt-tokenizer) or ~4 chars/token. */
+export async function countTokens(text: string): Promise<number> {
   if (!text) return 0;
   try {
     const { encode } = await import('gpt-tokenizer');

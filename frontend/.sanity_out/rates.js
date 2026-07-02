@@ -9,7 +9,7 @@ export const RATES = {
     promptTokens: 500,
     outputTokens: 450,
     chunkPerPage: 1.2,
-    laborMonthly: 14000,
+    laborMonthly: 0,
     churnPerMonth: 0.08,
     months: 12,
     obsBase: 120,

@@ -65,6 +65,8 @@ describe('calculateCosts', () => {
       chunkSize: '512' as const,
       systemPromptTokens: '1500' as const,
       outputTokens: 500,
+      conversationHistoryTokens: 0,
+      semanticCacheHitRate: 0,
     };
 
     // 285_087 reqs => 285_087 * 4560 = 1_299_996_720 tokens => ceil(.../1.3e9) = 1 step
@@ -107,7 +109,7 @@ describe('calculateCosts', () => {
     );
     // Generation cost is unaffected by the reranker choice.
     expect(cohere.inference).toBeCloseTo(none.inference, 6);
-    // The reranking bucket flows into the total (obs also tracks 5% of it).
+    // The reranking bucket flows into the total.
     expect(cohere.total).toBeGreaterThan(none.total + cohere.reranking - 1e-6);
   });
 
@@ -115,13 +117,6 @@ describe('calculateCosts', () => {
     const off = calculateCosts({ ...DEFAULT_INPUTS, cacheTTL: 'off', cacheHitRate: '0.9' });
     const on = calculateCosts({ ...DEFAULT_INPUTS, cacheTTL: '5min', cacheHitRate: '0.9' });
     expect(off.inference).toBeGreaterThan(on.inference);
-  });
-
-  it('observability toggle zeroes the obs bucket', () => {
-    const on = calculateCosts({ ...DEFAULT_INPUTS, observability: true });
-    const offObs = calculateCosts({ ...DEFAULT_INPUTS, observability: false });
-    expect(offObs.obs).toBe(0);
-    expect(on.obs).toBeGreaterThan(0);
   });
 
   it('NAT / cross-AZ surcharges increase the network bucket', () => {
@@ -201,10 +196,9 @@ describe('calculateCosts', () => {
       result.embed +
       result.reindex +
       result.infra +
-      result.obs +
       result.network +
       result.labor +
-      result.aiTools;
+      result.moderation;
     expect(result.total).toBeCloseTo(sumOfBuckets, 6);
 
     // Including setup in the sum must overshoot total by exactly setup.

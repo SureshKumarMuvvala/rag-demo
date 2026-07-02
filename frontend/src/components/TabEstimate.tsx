@@ -33,7 +33,6 @@ import {
 } from './estimate/primitives';
 import type { TileOption } from './estimate/primitives';
 import AdvancedDisclosure from './estimate/AdvancedDisclosure';
-import AiToolsEditor from './estimate/AiToolsEditor';
 import { customModelName } from '../lib/labels';
 
 // ---------------------------------------------------------------------------
@@ -95,9 +94,7 @@ const SECTIONS: SectionMeta[] = [
 // Tile option builders (labels/specs pulled from RATES)
 // ---------------------------------------------------------------------------
 
-const GEN_TILES: TileOption<GenModelKey>[] = (
-  Object.keys(RATES.genModels) as GenModelKey[]
-).map((k) => {
+function genTile(k: GenModelKey): TileOption<GenModelKey> {
   const m = RATES.genModels[k];
   return {
     value: k,
@@ -105,7 +102,28 @@ const GEN_TILES: TileOption<GenModelKey>[] = (
     sub: 'gpuStep' in m ? 'self-host GPU' : `$${m.in} / $${m.out} per 1M`,
     help: 'generation',
   };
-});
+}
+
+/** Blended price (input + output $/1M) used to rank models; open-weight = 0. */
+function genBlended(k: GenModelKey): number {
+  const m = RATES.genModels[k];
+  return 'gpuStep' in m ? 0 : m.in + m.out;
+}
+
+// Split generation models into a cheap tier (shown up front) and a premium tier
+// (behind a disclosure). The 5 cheapest API models by blended price + open-weight
+// stay visible; everything pricier is hidden by default.
+const GEN_API_KEYS_SORTED = (Object.keys(RATES.genModels) as GenModelKey[])
+  .filter((k) => !('gpuStep' in RATES.genModels[k]))
+  .sort((a, b) => genBlended(a) - genBlended(b));
+const GEN_OPEN_WEIGHT_KEYS = (Object.keys(RATES.genModels) as GenModelKey[]).filter(
+  (k) => 'gpuStep' in RATES.genModels[k],
+);
+const CHEAP_GEN_KEYS: GenModelKey[] = [...GEN_API_KEYS_SORTED.slice(0, 5), ...GEN_OPEN_WEIGHT_KEYS];
+const PREMIUM_GEN_KEYS: GenModelKey[] = GEN_API_KEYS_SORTED.slice(5);
+const PREMIUM_GEN_KEY_SET = new Set<GenModelKey>(PREMIUM_GEN_KEYS);
+const CHEAP_GEN_TILES: TileOption<GenModelKey>[] = CHEAP_GEN_KEYS.map(genTile);
+const PREMIUM_GEN_TILES: TileOption<GenModelKey>[] = PREMIUM_GEN_KEYS.map(genTile);
 
 const EMBED_TILES: TileOption<EmbedModelKey>[] = (
   Object.keys(RATES.embedModels) as EmbedModelKey[]
@@ -233,12 +251,14 @@ export default function TabEstimate({
   };
 
   return (
-    <div className="flex h-[calc(100vh-15.5rem)] min-h-[28rem] flex-col gap-3">
+    <div className="flex h-[calc(100vh-13rem)] min-h-[28rem] flex-col gap-3">
       {/* Dismissible scenario chip */}
       {showScenario && (
         <div className="flex shrink-0 items-center justify-between gap-2 rounded-xl border border-petrol/30 bg-tinted-surface/50 px-3 py-1.5">
           <span className="min-w-0 truncate font-mono text-[11px] text-ink/70">
-            <span className="font-semibold text-petrol">Scenario: Saarthi (Government Welfare)</span>{' '}
+            <span className="font-semibold text-petrol">
+              Scenario: Saarthi (Government Welfare) Phase-3 pilot
+            </span>{' '}
             — illustrative defaults, edit freely.
           </span>
           <button
@@ -266,7 +286,7 @@ export default function TabEstimate({
         <button
           type="button"
           onClick={() => setDocOpen(true)}
-          className="inline-flex items-center gap-2 rounded-xl bg-petrol px-3.5 py-2 font-display text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-petrol-light focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light focus-visible:ring-offset-2 focus-visible:ring-offset-page-bg"
+          className="inline-flex items-center gap-2 rounded-full bg-brand-gradient px-4 py-2 font-display text-[13px] font-semibold text-white shadow-glow-sm transition-all hover:brightness-110 hover:shadow-glow focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light focus-visible:ring-offset-2 focus-visible:ring-offset-page-bg"
         >
           <Icon name="file-text" className="h-4 w-4" />
           Understand my documents
@@ -395,7 +415,7 @@ export default function TabEstimate({
 
       {/* Desktop summary */}
       <aside className="hidden h-full min-h-0 overflow-y-auto rag-scroll rounded-2xl border border-borders bg-surfaces p-5 shadow-card wide:block">
-        <SummaryPanel costs={costs} overrides={overrides} misc={misc} inputs={inputs} onPinBucket={onPinBucket} />
+        <SummaryPanel costs={costs} overrides={overrides} misc={misc} onPinBucket={onPinBucket} />
       </aside>
 
       {/* Mobile pinned total + bottom sheet */}
@@ -406,7 +426,6 @@ export default function TabEstimate({
               costs={costs}
               overrides={overrides}
               misc={misc}
-              inputs={inputs}
               onPinBucket={onPinBucket}
             />
           </div>
@@ -615,6 +634,37 @@ function CorpusSection({ inputs, onChange }: CenterProps) {
           columns={3}
           onChange={(v) => onChange({ chunkOverlap: v })}
         />
+
+        <div className="grid grid-cols-2 gap-3">
+          <PctField
+            label="Duplicate chunks"
+            value={inputs.dupChunkPct}
+            onChange={(f) => onChange({ dupChunkPct: f })}
+          />
+          <NumberField
+            label="New documents / month"
+            value={inputs.newDocsPerMonth}
+            min={0}
+            step={1}
+            suffix="docs"
+            onChange={(v) => onChange({ newDocsPerMonth: Math.max(0, Math.round(v)) })}
+          />
+        </div>
+
+        <div className="rounded-xl border border-borders bg-surfaces p-3.5">
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-petrol">
+            Ingestion detail (one-time / per new doc)
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <PctField label="Pages needing OCR" value={inputs.ocrPct} onChange={(f) => onChange({ ocrPct: f })} />
+            <NumberField label="OCR $/page" value={inputs.ocrPerPage} prefix="$" onChange={(v) => onChange({ ocrPerPage: Math.max(0, v) })} />
+            <NumberField label="Parser $/page" value={inputs.parserPerPage} prefix="$" onChange={(v) => onChange({ parserPerPage: Math.max(0, v) })} />
+            <NumberField label="Tables / doc" value={inputs.tablesPerDoc} min={0} onChange={(v) => onChange({ tablesPerDoc: Math.max(0, v) })} />
+            <NumberField label="Table extract $" value={inputs.tableExtractPer} prefix="$" onChange={(v) => onChange({ tableExtractPer: Math.max(0, v) })} />
+            <NumberField label="Images / doc" value={inputs.imagesPerDoc} min={0} onChange={(v) => onChange({ imagesPerDoc: Math.max(0, v) })} />
+            <NumberField label="Image extract $" value={inputs.imageExtractPer} prefix="$" onChange={(v) => onChange({ imageExtractPer: Math.max(0, v) })} />
+          </div>
+        </div>
       </AdvancedDisclosure>
     </div>
   );
@@ -711,7 +761,7 @@ function TrafficSection({ inputs, onChange }: CenterProps) {
               label="User query tokens"
               value={inputs.userQueryTokens}
               min={20}
-              max={500}
+              max={2_000}
               step={1}
               format={(n) => n.toLocaleString('en-US')}
               onChange={(v) => onChange({ userQueryTokens: v })}
@@ -729,6 +779,38 @@ function TrafficSection({ inputs, onChange }: CenterProps) {
             />
           </StatCard>
         </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <StatCard>
+            <RangeSlider
+              label="Conversation history tokens"
+              value={inputs.conversationHistoryTokens}
+              min={0}
+              max={4_000}
+              step={1}
+              format={(n) => n.toLocaleString('en-US')}
+              onChange={(v) => onChange({ conversationHistoryTokens: Math.max(0, Math.round(v)) })}
+            />
+          </StatCard>
+          <div className="flex flex-col gap-2">
+            <Toggle
+              label="Safety / moderation pass"
+              checked={inputs.moderationEnabled}
+              onChange={(v) => onChange({ moderationEnabled: v })}
+              hint="scans request input + output for safety"
+            />
+            {inputs.moderationEnabled && (
+              <div className="w-40">
+                <NumberField
+                  label="Moderation $ / 1M tokens"
+                  value={inputs.moderationPerM}
+                  prefix="$"
+                  onChange={(v) => onChange({ moderationPerM: Math.max(0, v) })}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </AdvancedDisclosure>
     </div>
   );
@@ -744,12 +826,16 @@ function GenerationSection({
   clearOverrideKey,}: CenterProps) {
   const custom = overrides.genModel;
   const isGpu = custom?.gpuMonthly != null;
+  const [advOpen, setAdvOpen] = useState(false);
+  // Auto-expand the premium tier whenever the current selection is a premium
+  // model, so a selected tile is never hidden.
+  const premiumOpen = advOpen || PREMIUM_GEN_KEY_SET.has(inputs.genModel);
   return (
     <div className="flex flex-col gap-4">
       <TileGroup
         label="Generation model"
         value={inputs.genModel}
-        options={GEN_TILES}
+        options={CHEAP_GEN_TILES}
         columns={2}
         onChange={(v) => {
           onChange({ genModel: v });
@@ -767,6 +853,24 @@ function GenerationSection({
           },
         }}
       />
+
+      <AdvancedDisclosure
+        open={premiumOpen}
+        onToggle={() => setAdvOpen((o) => !o)}
+        label="Show premium / higher-accuracy models"
+      >
+        <TileGroup
+          label="Premium models"
+          value={inputs.genModel}
+          options={PREMIUM_GEN_TILES}
+          columns={2}
+          onChange={(v) => {
+            onChange({ genModel: v });
+            if (overrides.genModel) clearOverrideKey('genModel');
+          }}
+        />
+      </AdvancedDisclosure>
+
       {custom && (
         <CustomPanel onReset={() => clearOverrideKey('genModel')}>
           <CustomNameField
@@ -1081,15 +1185,16 @@ function CachingSection({ inputs, onChange }: CenterProps) {
         columns={3}
         onChange={(v) => onChange({ cacheTTL: v })}      />
       <TileGroup
-        label="Cache hit rate"
+        label="Prompt cache hit rate"
         value={inputs.cacheHitRate}
         options={[
           { value: '0', title: '0%', sub: 'no hits' },
+          { value: '0.2', title: '20%', sub: 'low' },
           { value: '0.5', title: '50%', sub: 'typical' },
           { value: '0.75', title: '75%', sub: 'good' },
           { value: '0.9', title: '90%', sub: 'best case' },
         ]}
-        columns={4}
+        columns={3}
         onChange={(v) => onChange({ cacheHitRate: v })}
       />
       {inputs.cacheTTL === 'off' && (
@@ -1097,6 +1202,28 @@ function CachingSection({ inputs, onChange }: CenterProps) {
           Prompt caching off — the hit-rate discount and write surcharge are both disabled.
         </p>
       )}
+
+      <div className="rounded-xl border border-borders bg-surfaces p-3.5">
+        <div className="w-40">
+          <NumberField
+            label="Semantic cache hit rate"
+            value={Math.round((inputs.semanticCacheHitRate ?? 0) * 100)}
+            min={0}
+            max={100}
+            step={1}
+            suffix="%"
+            onChange={(v) =>
+              onChange({
+                semanticCacheHitRate: Math.min(1, Math.max(0, (Number.isFinite(v) ? v : 0) / 100)),
+              })
+            }
+          />
+        </div>
+        <p className="mt-2 font-mono text-[10px] text-ink/55">
+          Distinct from prompt caching — the share of queries answered from a semantic cache that
+          skip generation entirely.
+        </p>
+      </div>
     </div>
   );
 }
@@ -1212,20 +1339,39 @@ function TeamSection({ inputs, onChange, misc, onMiscChange, nextMiscId }: Cente
               onChangeUsd={(usd) => onChange({ laborMonthly: Math.max(0, usd) })}
             />
             <p className="font-mono text-[10px] text-ink/50">
-              × team size × maintenance fraction = engineering labor.
+              0 by default — enter a loaded cost to add engineering labor.
+            </p>
+          </div>
+        </StatCard>
+        <StatCard>
+          <div className="flex flex-col gap-1">
+            <PctField
+              label="Maintenance fraction"
+              value={inputs.maintFrac}
+              onChange={(f) => onChange({ maintFrac: f })}
+            />
+            <p className="font-mono text-[10px] text-ink/50">
+              engineering labor = team size × loaded cost × maintenance fraction.
             </p>
           </div>
         </StatCard>
       </div>
-      <Toggle
-        label="Budget observability & evals"
-        checked={inputs.observability}
-        onChange={(v) => onChange({ observability: v })}
-        hint={`$${RATES.obsBase}/mo floor + 5% of inference`}
-      />
 
       <AdvancedDisclosure open={adv} onToggle={() => setAdv((o) => !o)}>
-        <AiToolsEditor inputs={inputs} onChange={onChange} />
+        <StatCard>
+          <div className="flex flex-col gap-1">
+            <MoneyField
+              label="Infrastructure / month (flat)"
+              valueUsd={inputs.infraMonthly}
+              min={0}
+              step={5}
+              onChangeUsd={(usd) => onChange({ infraMonthly: Math.max(0, usd) })}
+            />
+            <p className="font-mono text-[10px] text-ink/50">
+              App servers, load balancer, Redis, monitoring, storage (Excel infra block).
+            </p>
+          </div>
+        </StatCard>
         <MiscEditor misc={misc} onChange={onMiscChange} nextId={nextMiscId} />
       </AdvancedDisclosure>
     </div>
@@ -1235,6 +1381,29 @@ function TeamSection({ inputs, onChange, misc, onMiscChange, nextMiscId }: Cente
 // ---------------------------------------------------------------------------
 // Small shared bits
 // ---------------------------------------------------------------------------
+
+/** A percentage input backed by a 0..1 fraction. */
+function PctField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (frac: number) => void;
+}) {
+  return (
+    <NumberField
+      label={label}
+      value={Math.round((value ?? 0) * 100)}
+      min={0}
+      max={100}
+      step={1}
+      suffix="%"
+      onChange={(v) => onChange(Math.min(1, Math.max(0, (Number.isFinite(v) ? v : 0) / 100)))}
+    />
+  );
+}
 
 function CustomPanel({
   children,
@@ -1339,9 +1508,7 @@ function sectionSummary(id: SectionId, inputs: Inputs, overrides: Overrides): st
         ? customModelName(overrides.cloud)
         : RATES.egress[inputs.cloudProvider].label;
     case 'team':
-      return `${inputs.teamSize} engineer${inputs.teamSize === 1 ? '' : 's'}${
-        inputs.observability ? ' · obs' : ''
-      }`;
+      return `${inputs.teamSize} engineer${inputs.teamSize === 1 ? '' : 's'}`;
   }
 }
 
@@ -1386,7 +1553,7 @@ function sectionConfigured(id: SectionId, inputs: Inputs, overrides: Overrides):
         inputs.crossAz !== d.crossAz
       );
     case 'team':
-      return inputs.teamSize !== d.teamSize || inputs.observability !== d.observability;
+      return inputs.teamSize !== d.teamSize;
   }
 }
 

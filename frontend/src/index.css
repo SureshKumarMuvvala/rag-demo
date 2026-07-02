@@ -138,16 +138,35 @@ body,
 body {
   margin: 0;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  color: #15242B;
-  background-color: #E9EDEF;
-  /* 26px graph-paper grid using two linear gradients */
+  color: #132029;
+  background-color: #EAF0F3;
+  /* Bold, modern gradient-mesh wash + a whisper of the calculator grid. */
   background-image:
-    linear-gradient(to right, rgba(21, 36, 43, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(21, 36, 43, 0.05) 1px, transparent 1px);
-  background-size: 26px 26px;
+    radial-gradient(1100px 620px at 8% -12%, rgba(20, 184, 166, 0.14), transparent 60%),
+    radial-gradient(900px 520px at 102% 4%, rgba(217, 133, 20, 0.10), transparent 55%),
+    radial-gradient(1000px 700px at 50% 118%, rgba(14, 124, 123, 0.10), transparent 60%),
+    linear-gradient(to right, rgba(19, 32, 41, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(19, 32, 41, 0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 30px 30px, 30px 30px;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Frosted-glass surface for elevated chrome (hero, tab bar, headers). */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: saturate(150%) blur(14px);
+  -webkit-backdrop-filter: saturate(150%) blur(14px);
+}
+
+/* Petrol → teal gradient text for headlines and key numbers. */
+.gradient-text {
+  background-image: linear-gradient(115deg, #0A5A59, #0E7C7B 42%, #14B8A6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 /* Explore tab: smooth fade/slide when switching topics */

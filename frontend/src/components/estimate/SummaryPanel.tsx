@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import type { BucketKey, CostBreakdown, CustomNamed, Inputs, MiscItem, Overrides } from '../../lib/types';
+import type { BucketKey, CostBreakdown, CustomNamed, MiscItem, Overrides } from '../../lib/types';
 import Waterline from '../Waterline';
 import { CustomBadge } from './primitives';
 import { CONVERSION_STAMP, useCurrency, useMoney } from '../../lib/currency';
 import type { Currency } from '../../lib/currency';
-import { aiToolsEdited, customModelName } from '../../lib/labels';
+import { customModelName } from '../../lib/labels';
 
 interface BucketMeta {
   key: BucketKey;
@@ -21,17 +21,15 @@ const BUCKETS: BucketMeta[] = [
   { key: 'embed', label: 'Embedding', color: '#C2790C', overrideKey: 'embedModel' },
   { key: 'reindex', label: 'Re-indexing', color: '#B5483A' },
   { key: 'infra', label: 'App & compute infra', color: '#2F7D5B' },
-  { key: 'obs', label: 'Observability & evals', color: '#7CC79A' },
   { key: 'network', label: 'Network / data transfer', color: '#15242B', overrideKey: 'cloud' },
   { key: 'labor', label: 'Engineering labor', color: '#5A6B73' },
-  { key: 'aiTools', label: 'AI / build tooling', color: '#6B4E9E' },
+  { key: 'moderation', label: 'Safety / moderation', color: '#A03A6B' },
 ];
 
 interface SummaryPanelProps {
   costs: CostBreakdown;
   overrides: Overrides;
   misc: MiscItem[];
-  inputs: Inputs;
   onPinBucket: (key: BucketKey, flat: number | null) => void;
 }
 
@@ -39,7 +37,6 @@ export default function SummaryPanel({
   costs,
   overrides,
   misc,
-  inputs,
   onPinBucket,
 }: SummaryPanelProps) {
   const [editing, setEditing] = useState<BucketKey | null>(null);
@@ -65,7 +62,7 @@ export default function SummaryPanel({
 
       <div>
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-4xl font-semibold tabular-nums text-ink">
+          <span className="gradient-text font-display text-[2.6rem] font-bold leading-none tabular-nums">
             {formatCurrency(total)}
           </span>
           <span className="font-mono text-xs uppercase tracking-wider text-ink/60">/ mo</span>
@@ -88,7 +85,6 @@ export default function SummaryPanel({
           const customName = rateCustom
             ? customModelName(overrides[b.overrideKey!] as CustomNamed)
             : null;
-          const aiCustom = b.key === 'aiTools' && aiToolsEdited(inputs);
           return (
             <li key={b.key} className="border-b border-borders/60 last:border-b-0">
               <div className="flex items-start gap-2.5 py-2">
@@ -101,7 +97,7 @@ export default function SummaryPanel({
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="flex items-center gap-1.5">
                       <span className="font-body text-[13px] font-medium text-ink">{b.label}</span>
-                      {(pinned || rateCustom || aiCustom) && <CustomBadge />}
+                      {(pinned || rateCustom) && <CustomBadge />}
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="font-mono text-[13px] tabular-nums text-ink">

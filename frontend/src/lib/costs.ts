@@ -36,13 +36,13 @@ export function getDeployment(inputs: Pick<Inputs, 'vectorDb'>): DeploymentKey {
  *   2. vector    - Vector DB hosting (per-DB branch from the spec)
  *   3. embed     - One-time embedding + parse, amortized over `amortMonths`
  *   4. reindex   - Monthly re-embedding of the `reindexFreq` fraction
- *   5. infra     - Baseline infra + per-million-query charge
- *   6. obs       - Baseline observability + 5% of inference
- *   7. network   - Egress bytes (outputTokens always; retrieved if crossRegion)
+ *   5. infra     - Flat monthly infra (monitoring/servers/storage)
+ *   6. network   - Egress bytes (outputTokens always; retrieved if crossRegion)
  *                  with provider free tier
- *   8. labor     - teamSize * laborMonthly * maintFrac[deployment]
+ *   7. labor     - teamSize * laborMonthly * maintFrac
+ *   8. moderation- optional per-token safety pass
  *
- * `total` = sum of the 8 buckets. `annual` = `total * 12`.
+ * `total` = sum of the buckets. `annual` = `total * 12`.
  * `setup` = full (un-amortized) ingestion + embedding cost; not in `total`.
  */
 export function calculateCosts(
@@ -76,11 +76,22 @@ export function calculateCosts(
     crossAz,
     reindexFreq,
     teamSize,
-    observability,
     laborMonthly,
-    aiToolsMode,
-    aiToolsFlatMonthly,
-    aiTools,
+    maintFrac,
+    conversationHistoryTokens,
+    semanticCacheHitRate,
+    dupChunkPct,
+    newDocsPerMonth,
+    ocrPct,
+    ocrPerPage,
+    parserPerPage,
+    tablesPerDoc,
+    tableExtractPer,
+    imagesPerDoc,
+    imageExtractPer,
+    moderationEnabled,
+    moderationPerM,
+    infraMonthly,
   } = inputs;
 
   const overrides = extras?.overrides ?? {};
@@ -116,9 +127,11 @@ export function calculateCosts(
   // Corpus / embedding derivations shared by multiple buckets.
   // Embedding rate + dimension honor a custom override when present.
   // ------------------------------------------------------------------
+  const dupChunkFrac = clamp01(dupChunkPct);
   const rawTokens = pages * tokensPerPageNum;
   const embedTokens = rawTokens * (1 + chunkOverlapNum);
-  const vectors = embedTokens / chunkSizeNum;
+  // Duplicate chunks are de-duplicated before storage, reducing stored vectors.
+  const vectors = (embedTokens / chunkSizeNum) * (1 - dupChunkFrac);
   const dim = overrides.embedModel?.dim ?? RATES.embedModels[embedModel].dim;
   const storageGB =
     (vectors * dim * RATES.bytesPerToken * RATES.hnswOverhead) / 1e9;
@@ -138,7 +151,11 @@ export function calculateCosts(
   // ------------------------------------------------------------------
   const gen = RATES.genModels[genModel];
   const genOverride = overrides.genModel;
-  const baseInputTokens = systemPromptNum + retrieved + userQueryTokens;
+  const baseInputTokens =
+    systemPromptNum +
+    retrieved +
+    userQueryTokens +
+    Math.max(0, conversationHistoryTokens || 0);
 
   const cachingOn = cacheTTL !== 'off';
   const cachedFraction = cachingOn
@@ -154,25 +171,29 @@ export function calculateCosts(
     ? cacheablePrefix * (1 - cacheHitRateNum) * Math.max(0, ttlMult - 1)
     : 0;
 
+  // A semantic-cache hit returns a cached answer, skipping generation entirely.
+  const genQueryFrac = 1 - clamp01(semanticCacheHitRate);
+  const genReqs = reqs * genQueryFrac;
+
   let genCost: number;
   if (genOverride?.gpuMonthly != null) {
-    // Custom self-host style generation: flat monthly.
+    // Custom self-host style generation: flat monthly (fixed regardless of volume).
     genCost = genOverride.gpuMonthly;
   } else if (genOverride && (genOverride.in != null || genOverride.out != null)) {
     // Custom API rates.
     const inRate = genOverride.in ?? 0;
     const outRate = genOverride.out ?? 0;
     genCost =
-      reqs *
+      genReqs *
       (((effectiveInputTokens + writeSurchargeTokens) / 1_000_000) * inRate +
         (outputTokens / 1_000_000) * outRate);
   } else if ('gpuStep' in gen) {
     // Open-weight: total request-tokens (in + out) drives GPU step count.
-    const totalReqTokens = reqs * (effectiveInputTokens + outputTokens);
+    const totalReqTokens = genReqs * (effectiveInputTokens + outputTokens);
     genCost = Math.ceil(totalReqTokens / gen.gpuCapacityReqTokens) * gen.gpuStep;
   } else {
     genCost =
-      reqs *
+      genReqs *
       (((effectiveInputTokens + writeSurchargeTokens) / 1_000_000) * gen.in +
         (outputTokens / 1_000_000) * gen.out);
   }
@@ -239,29 +260,38 @@ export function calculateCosts(
   }
 
   // ------------------------------------------------------------------
-  // 3. embed (one-time, amortized monthly) + setup (full one-time)
+  // 3. embed / ingestion (one-time, amortized monthly) + setup (full one-time)
+  //    Per-doc = embedding tokens + ingestion detail (OCR, parser, tables,
+  //    images). embedOneTime scales that over the base corpus.
   // ------------------------------------------------------------------
-  const embedOneTime =
-    (embedTokens / 1_000_000) * embedPerM + pages * RATES.parsePerPage;
+  const tokensPerDoc = pagesPerDoc * tokensPerPageNum * (1 + chunkOverlapNum);
+  const embedCostPerDoc = (tokensPerDoc / 1_000_000) * embedPerM;
+  // OCR'd pages are text-extracted by OCR; only the remaining pages hit the
+  // parser (matches the Excel, which parses non-OCR pages only).
+  const ocrFrac = clamp01(ocrPct);
+  const ingestPerDoc =
+    pagesPerDoc * ocrFrac * Math.max(0, ocrPerPage || 0) +
+    pagesPerDoc * (1 - ocrFrac) * Math.max(0, parserPerPage || 0) +
+    Math.max(0, tablesPerDoc || 0) * Math.max(0, tableExtractPer || 0) +
+    Math.max(0, imagesPerDoc || 0) * Math.max(0, imageExtractPer || 0);
+  const oneDocCost = embedCostPerDoc + ingestPerDoc;
+
+  const embedOneTime = oneDocCost * documents;
   const embed = embedOneTime / RATES.amortMonths;
 
   // ------------------------------------------------------------------
-  // 4. reindex
+  // 4. reindex: recurring re-index of the corpus fraction + ingesting the
+  //    monthly new documents.
   // ------------------------------------------------------------------
-  const reindex = reindexFreqNum * embedOneTime;
+  const reindex = reindexFreqNum * embedOneTime + oneDocCost * Math.max(0, newDocsPerMonth || 0);
 
   // ------------------------------------------------------------------
-  // 5. infra: infraBase + reqs/1e6 * 40
+  // 5. infra: flat monthly (editable).
   // ------------------------------------------------------------------
-  const infra = RATES.infraBase + (reqs / 1_000_000) * 40;
+  const infra = Math.max(0, infraMonthly || 0);
 
   // ------------------------------------------------------------------
-  // 6. obs: obsBase + 5% of generation+reranking (0 when toggled off)
-  // ------------------------------------------------------------------
-  const obs = observability ? RATES.obsBase + (inference + reranking) * 0.05 : 0;
-
-  // ------------------------------------------------------------------
-  // 7. network: internet egress (tiered free allowance) + optional
+  // 6. network: internet egress (tiered free allowance) + optional
   //    NAT / cross-AZ surcharges applied to all egress GB.
   // ------------------------------------------------------------------
   const egress = overrides.cloud ?? RATES.egress[cloudProvider];
@@ -278,22 +308,18 @@ export function calculateCosts(
   // ------------------------------------------------------------------
   // 8. labor
   // ------------------------------------------------------------------
-  const deployment = getDeployment(inputs);
   const laborRate = Math.max(0, Number.isFinite(laborMonthly) ? laborMonthly : RATES.laborMonthly);
-  const labor = teamSize * laborRate * RATES.maintFrac[deployment];
+  const maintFracNum = clamp01(
+    Number.isFinite(maintFrac) ? maintFrac : RATES.maintFrac[getDeployment(inputs)],
+  );
+  const labor = teamSize * laborRate * maintFracNum;
 
   // ------------------------------------------------------------------
-  // 9. AI / build tooling (optional; vibe-coding seat costs)
+  // 9. moderation / safety: per-1M-token pass over request input + output.
   // ------------------------------------------------------------------
-  const aiToolsMonthly =
-    aiToolsMode === 'flat'
-      ? Math.max(0, Number.isFinite(aiToolsFlatMonthly) ? aiToolsFlatMonthly : 0)
-      : Object.values(aiTools).reduce((s, line) => {
-          if (!line) return s;
-          const perSeat = Math.max(0, Number.isFinite(line.perSeat) ? line.perSeat : 0);
-          const seats = Math.max(0, Number.isFinite(line.seats) ? line.seats : 0);
-          return s + perSeat * seats;
-        }, 0);
+  const moderation = moderationEnabled
+    ? (reqs * (baseInputTokens + outputTokens) / 1_000_000) * Math.max(0, moderationPerM || 0)
+    : 0;
 
   // ------------------------------------------------------------------
   // Misc line items + per-bucket flat overrides.
@@ -312,10 +338,9 @@ export function calculateCosts(
     embed,
     reindex,
     infra,
-    obs,
     network,
     labor,
-    aiTools: aiToolsMonthly,
+    moderation,
   };
   const bucketPins = overrides.buckets ?? {};
   (Object.keys(bucketPins) as BucketKey[]).forEach((k) => {
@@ -338,16 +363,21 @@ export function calculateCosts(
     embed: computed.embed,
     reindex: computed.reindex,
     infra: computed.infra,
-    obs: computed.obs,
     network: computed.network,
     labor: computed.labor,
-    aiTools: computed.aiTools,
+    moderation: computed.moderation,
     miscMonthly,
     miscOneTime,
     total,
     annual,
     setup,
   };
+}
+
+/** Clamp a value into [0, 1] (guards NaN → 0). */
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
 }
 
 // ---------------------------------------------------------------------------

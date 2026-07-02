@@ -2,6 +2,9 @@
 // Values mirror the product spec in `docs/user-spec.md`. The frontend is
 // illustrative only; do not change values here without updating the spec.
 
+/** Rate-snapshot label shown in the header stamp. */
+export const PRICES_AS_OF = 'June 2026';
+
 export const RATES = {
   // ---- Generation models -------------------------------------------------
   // API models: USD per 1M input / output tokens.
@@ -41,7 +44,7 @@ export const RATES = {
 
   // ---- Reranker ----------------------------------------------------------
   // Scalar USD per 1,000 searches. See cost model bucket 1.
-  rerankerPer1k: 2.00,
+  rerankerPer1k: 1.00,
 
   // ---- Vector databases --------------------------------------------------
   // managed: true = hosted SaaS, false = self-hosted node.
@@ -50,7 +53,7 @@ export const RATES = {
     'pinecone':   { label: 'Pinecone Serverless (managed)', base: 50, perGB: 0.33, readsPerM: 16, writesPerM: 2, managed: true  },
     'weaviate':   { label: 'Weaviate Cloud Flex (managed)', base: 45, perMdim: 0.095, managed: true },
     'qdrant-cloud':{label: 'Qdrant Cloud (managed)',        base: 65, perGB: 0, readsPerM: 0, writesPerM: 0, managed: true },
-    'pgvector-rds':{label: 'pgvector on RDS (managed-ish)', base: 45, perGB: 0, managed: true },
+    'pgvector-rds':{label: 'AWS RDS pgvector (t4g.medium)', base: 30, perGB: 0, managed: true },
     'selfhost':   { label: 'Self-hosted Qdrant/Weaviate (VPS)', nodeGBcap: 18, nodeCost: 96, managed: false },
   } as const,
 
@@ -89,24 +92,8 @@ export const RATES = {
   maintFrac: { managed: 0.22, selfhosted: 0.55 } as const,
   /** Baseline monthly infra cost (USD). */
   infraBase: 55,
-  /** Baseline monthly observability / evals cost (USD). */
-  obsBase: 120,
   /** Months over which one-time setup (ingestion + embedding) is amortized. */
   amortMonths: 12,
-
-  // ---- AI / build tooling (vibe-coding) ----------------------------------
-  // Illustrative per-seat USD / month, verified ~June 2026; editable in the UI.
-  // Usage-based plans may exceed the seat price.
-  aiTools: {
-    'claude-code':  { label: 'Claude Code (Teams)',        perSeat: 25  },
-    'cursor':       { label: 'Cursor (Teams Standard)',    perSeat: 40  },
-    'cursor-prem':  { label: 'Cursor (Teams Premium)',     perSeat: 120 },
-    'copilot-biz':  { label: 'GitHub Copilot (Business)',  perSeat: 19  },
-    'copilot-ent':  { label: 'GitHub Copilot (Enterprise)', perSeat: 39 },
-    'windsurf':     { label: 'Windsurf / Devin Desktop',   perSeat: 20  },
-    'v0':           { label: 'v0 / Vercel',                perSeat: 20  },
-    'other':        { label: 'Other (custom)',             perSeat: 20  },
-  } as const,
 } as const;
 
 // ---------------------------------------------------------------------------

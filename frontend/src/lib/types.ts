@@ -12,31 +12,11 @@ export type ChunkSizeKey = '256' | '512' | '1024';
 export type OverlapKey = '0' | '0.10' | '0.25';
 export type TopKKey = '3' | '5' | '10' | '20';
 export type SystemPromptKey = '500' | '1500' | '3000' | 'custom';
-export type CacheRateKey = '0' | '0.5' | '0.75' | '0.9';
+export type CacheRateKey = '0' | '0.2' | '0.5' | '0.75' | '0.9';
 export type CacheTTLKey = 'off' | '5min' | '1hour';
 export type ReindexKey = '0' | '0.08' | '0.30';
 export type RerankerKey = 'none' | 'cohere';
 export type RerankPoolKey = '25' | '50' | '100';
-
-/** AI / build-tooling seat products (illustrative per-seat prices in RATES). */
-export type AiToolKey =
-  | 'claude-code'
-  | 'cursor'
-  | 'cursor-prem'
-  | 'copilot-biz'
-  | 'copilot-ent'
-  | 'windsurf'
-  | 'v0'
-  | 'other';
-
-/** A selected AI tool line: per-seat USD (editable) × number of seats. */
-export interface AiToolLine {
-  /** USD per seat / month (defaults from RATES; editable). */
-  perSeat: number;
-  seats: number;
-}
-
-export type AiToolsMode = 'byTool' | 'flat';
 
 export type GenModelKey =
   | 'gpt-5.5'
@@ -143,18 +123,42 @@ export interface Inputs {
   reindexFreq: ReindexKey;
   /** Engineering team size. */
   teamSize: number;
-  /** Whether an observability/evals line is budgeted. */
-  observability: boolean;
-  /** Fully-loaded monthly cost per engineer (USD; editable in the UI). */
+  /** Fully-loaded monthly cost per engineer (USD). */
   laborMonthly: number;
+  /** Fraction of an engineer's time spent maintaining the system (editable). */
+  maintFrac: number;
 
-  // AI / build tooling (optional; vibe-coding seat costs)
-  /** Whether AI-tooling cost is entered per tool or as a flat amount. */
-  aiToolsMode: AiToolsMode;
-  /** Flat AI-tooling cost per month (USD) when aiToolsMode === 'flat'. */
-  aiToolsFlatMonthly: number;
-  /** Selected AI tools with per-seat USD + seats (byTool mode). */
-  aiTools: Partial<Record<AiToolKey, AiToolLine>>;
+  // ---- Excel-parity levers (Saarthi Phase-3) ----------------------------
+  /** Conversation history tokens added to each request's input. */
+  conversationHistoryTokens: number;
+  /** Fraction of queries served from a semantic cache (skip generation). */
+  semanticCacheHitRate: number;
+  /** Fraction of chunks that are duplicates (reduces stored vectors). */
+  dupChunkPct: number;
+  /** New documents ingested per month (recurring ingestion + re-index). */
+  newDocsPerMonth: number;
+  // Ingestion detail (one-time / per new doc)
+  /** Fraction of pages needing OCR. */
+  ocrPct: number;
+  /** OCR cost per page (USD). */
+  ocrPerPage: number;
+  /** Parser / extraction cost per page (USD). */
+  parserPerPage: number;
+  /** Avg tables per document. */
+  tablesPerDoc: number;
+  /** Table-extraction cost per table (USD). */
+  tableExtractPer: number;
+  /** Avg images per document. */
+  imagesPerDoc: number;
+  /** Image-extraction cost per image (USD). */
+  imageExtractPer: number;
+  // Safety & infra
+  /** Whether a safety/moderation pass runs on each request. */
+  moderationEnabled: boolean;
+  /** Moderation cost per 1M tokens (USD). */
+  moderationPerM: number;
+  /** Flat monthly infrastructure cost (USD: app servers, LB, Redis, monitoring, storage). */
+  infraMonthly: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,10 +174,9 @@ export type BucketKey =
   | 'embed'
   | 'reindex'
   | 'infra'
-  | 'obs'
   | 'network'
   | 'labor'
-  | 'aiTools';
+  | 'moderation';
 
 /** User-supplied name for a custom ("Bring Your Model") choice. */
 export interface CustomNamed {
@@ -259,12 +262,12 @@ export interface EstimateExtras {
  *   2. vector     - vector database hosting
  *   3. embed      - amortized one-time embedding + parse
  *   4. reindex    - monthly re-embedding of the reindex fraction
- *   5. infra      - baseline infra + per-million-query charge
- *   6. obs        - baseline observability + 5% of inference
- *   7. network    - egress (outputTokens always, retrieved if crossRegion) with provider free tier
- *   8. labor      - teamSize * laborMonthly * maintFrac[deployment]
+ *   5. infra      - flat monthly infra (monitoring/servers/storage)
+ *   6. network    - egress (outputTokens always, retrieved if crossRegion) with provider free tier
+ *   7. labor      - teamSize * laborMonthly * maintFrac
+ *   8. moderation - optional per-token safety pass
  *
- * `total` is the sum of the 8 buckets; `annual` is `total * 12`.
+ * `total` is the sum of the buckets; `annual` is `total * 12`.
  * `setup` is the one-time ingestion + embedding cost (NOT in `total`).
  */
 export interface CostBreakdown {
@@ -275,11 +278,10 @@ export interface CostBreakdown {
   embed: number;
   reindex: number;
   infra: number;
-  obs: number;
   network: number;
   labor: number;
-  /** AI / build tooling (vibe-coding seat costs); 0 when none. */
-  aiTools: number;
+  /** Safety / moderation pass; 0 when disabled. */
+  moderation: number;
   /** Sum of monthly misc line items (0 when none). */
   miscMonthly: number;
   /** Sum of one-time misc line items (already folded into `setup`). */
@@ -293,46 +295,59 @@ export interface CostBreakdown {
 // Defaults
 // ---------------------------------------------------------------------------
 
-// Default scenario: "Saarthi — Government Welfare Intelligence Platform", a
-// citizen-facing RAG assistant for Indian government schemes. The app lands
-// pre-populated with this realistic use case; every value stays editable.
+// Default scenario: "Saarthi — Government Welfare Intelligence Platform" (Phase-3
+// pilot), a citizen-facing RAG assistant for Indian government schemes. Values
+// mirror the team's Excel model (rag_tco_calculator.xlsx). Everything is editable.
 export const DEFAULT_INPUTS: Inputs = {
   // Corpus
-  documents: 50_000,
-  avgDocSizePages: 'long',
-  tokensPerPage: 'dense',
+  documents: 500, // Excel "Total Base Documents" = 500 (Phase-3 pilot)
+  avgDocSizePages: 'standard', // Excel "Avg Pages per Document" = 10
+  tokensPerPage: 'standard', // Excel ~530 tok/page → closest option (500)
   chunkSize: '512',
-  chunkOverlap: '0.25',
+  chunkOverlap: '0.10', // Excel overlap = 50 tokens (~10%)
 
-  // Traffic (single-state pilot; easy to scale up live)
-  requestsPerMonth: 100_000,
+  // Traffic (300 MAU × 20 queries/user = 6,000 queries/month)
+  requestsPerMonth: 6_000,
   topK: '10',
   rerankCandidatePool: '50',
-  systemPromptTokens: '1500',
-  userQueryTokens: 70,
-  outputTokens: 700,
+  systemPromptTokens: '500', // Excel "System Prompt Tokens" = 500
+  userQueryTokens: 1_000, // Excel "Avg Query Prompt Tokens" = 1000
+  outputTokens: 800, // Excel "Avg Output Tokens" = 800
   avgSessionTurns: 3,
   cacheTTL: '1hour',
-  cacheHitRate: '0.75',
+  cacheHitRate: '0.2', // Excel "Prompt Cache Hit Rate" = 0.2
 
   // Models
-  genModel: 'gemini-3.1-pro',
-  embedModel: 'cohere-v4',
-  reranker: 'cohere',
+  genModel: 'gpt-5.4-nano', // cheap-tier successor to Excel's "GPT-4o mini"
+  embedModel: 'te3-small', // Excel default
+  reranker: 'cohere', // Cohere Rerank v3.5, active
 
   // Infra
-  vectorDb: 'selfhost',
+  vectorDb: 'pgvector-rds', // AWS RDS pgvector (db.t4g.medium) ~$30/mo flat
   cloudProvider: 'aws',
   crossRegion: false,
   natSurcharge: false,
   crossAz: false,
   reindexFreq: '0.08', // Monthly — government schemes change frequently
-  teamSize: 0, // No labor by default (solo / AI-only builders add engineers if any)
-  observability: true,
-  laborMonthly: 14_000,
-  aiToolsMode: 'byTool',
-  aiToolsFlatMonthly: 0,
-  aiTools: {},
+  teamSize: 0, // Excel "SRE DevOps FTE count" = 0 → no labor
+  laborMonthly: 0, // no labor cost by default (edit to add loaded cost/engineer)
+  maintFrac: 0.22, // managed-stack default (share of an engineer on upkeep)
+
+  // Excel-parity levers
+  conversationHistoryTokens: 1_200,
+  semanticCacheHitRate: 0.1, // Excel "Semantic Cache Hit Rate" = 0.1
+  dupChunkPct: 0.05,
+  newDocsPerMonth: 10,
+  ocrPct: 0.2,
+  ocrPerPage: 0.015,
+  parserPerPage: 0.003,
+  tablesPerDoc: 1,
+  tableExtractPer: 0.02,
+  imagesPerDoc: 2,
+  imageExtractPer: 0.01,
+  moderationEnabled: true,
+  moderationPerM: 0.15,
+  infraMonthly: 90, // Excel infra nodes: 2×$20 app + $15 LB + $15 Redis + $15 monitoring + $5 S3
 };
 
 // Pre-loaded planning-gap misc lines for the Saarthi scenario. Each defaults to

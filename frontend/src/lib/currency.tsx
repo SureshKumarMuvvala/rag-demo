@@ -12,7 +12,7 @@ import { createContext, useContext, useMemo, useState } from 'react';
 export type Currency = 'INR' | 'USD';
 
 /** Standard illustrative conversion — editable; shown to the user. */
-export const USD_TO_INR = 95;
+export const USD_TO_INR = 95.1;
 
 /** Default currency for the whole app. */
 export const DEFAULT_CURRENCY: Currency = 'INR';
