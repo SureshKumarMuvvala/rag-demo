@@ -38,8 +38,9 @@ export default function MiscEditor({ misc, onChange, nextId }: MiscEditorProps) 
         {misc.map((m, i) => (
           <div
             key={m.id}
-            className="flex flex-col gap-2 rounded-xl border border-borders bg-surfaces p-3 sm:flex-row sm:items-center"
+            className="flex flex-col gap-2 rounded-xl border border-borders bg-surfaces p-3"
           >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <input
               type="text"
               value={m.label}
@@ -83,6 +84,15 @@ export default function MiscEditor({ misc, onChange, nextId }: MiscEditorProps) 
             >
               ×
             </button>
+            </div>
+            <input
+              type="text"
+              value={m.note ?? ''}
+              placeholder="note (optional)"
+              onChange={(e) => update(m.id, { note: e.target.value })}
+              aria-label="Note"
+              className="w-full rounded-lg border border-borders/60 bg-tinted-surface/30 px-2 py-1 font-body text-[11px] text-ink/70 placeholder:text-ink/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
+            />
           </div>
         ))}
       </div>

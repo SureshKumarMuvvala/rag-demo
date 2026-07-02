@@ -293,41 +293,92 @@ export interface CostBreakdown {
 // Defaults
 // ---------------------------------------------------------------------------
 
+// Default scenario: "Saarthi — Government Welfare Intelligence Platform", a
+// citizen-facing RAG assistant for Indian government schemes. The app lands
+// pre-populated with this realistic use case; every value stays editable.
 export const DEFAULT_INPUTS: Inputs = {
   // Corpus
-  documents: 100_000,
-  avgDocSizePages: 'standard',
-  tokensPerPage: 'standard',
+  documents: 50_000,
+  avgDocSizePages: 'long',
+  tokensPerPage: 'dense',
   chunkSize: '512',
-  chunkOverlap: '0.10',
+  chunkOverlap: '0.25',
 
-  // Traffic
+  // Traffic (single-state pilot; easy to scale up live)
   requestsPerMonth: 100_000,
-  topK: '5',
+  topK: '10',
   rerankCandidatePool: '50',
   systemPromptTokens: '1500',
-  userQueryTokens: 200,
-  outputTokens: 500,
-  avgSessionTurns: 4,
-  cacheTTL: '5min',
-  cacheHitRate: '0.5',
+  userQueryTokens: 70,
+  outputTokens: 700,
+  avgSessionTurns: 3,
+  cacheTTL: '1hour',
+  cacheHitRate: '0.75',
 
   // Models
-  genModel: 'gpt-5.4',
-  embedModel: 'te3-small',
-  reranker: 'none',
+  genModel: 'gemini-3.1-pro',
+  embedModel: 'cohere-v4',
+  reranker: 'cohere',
 
   // Infra
-  vectorDb: 'pinecone',
+  vectorDb: 'selfhost',
   cloudProvider: 'aws',
   crossRegion: false,
   natSurcharge: false,
   crossAz: false,
-  reindexFreq: '0.08',
-  teamSize: 0,
+  reindexFreq: '0.08', // Monthly — government schemes change frequently
+  teamSize: 0, // No labor by default (solo / AI-only builders add engineers if any)
   observability: true,
   laborMonthly: 14_000,
   aiToolsMode: 'byTool',
   aiToolsFlatMonthly: 0,
   aiTools: {},
 };
+
+// Pre-loaded planning-gap misc lines for the Saarthi scenario. Each defaults to
+// $0/mo (fully editable) with a note, so the landing view shows the planning
+// checklist this use case implies.
+export const DEFAULT_MISC: MiscItem[] = [
+  {
+    id: 'gap-multilingual',
+    label: 'Multilingual token overhead (Indic ~2×)',
+    amount: 0,
+    cadence: 'monthly',
+    note: 'Hindi/regional answers use ~2× tokens',
+  },
+  {
+    id: 'gap-query-mix',
+    label: 'Query-mix: complex/high-token queries (14–15)',
+    amount: 0,
+    cadence: 'monthly',
+    note: 'multi-part queries drive per-query cost',
+  },
+  {
+    id: 'gap-model-routing',
+    label: 'Model routing (cheap vs premium)',
+    amount: 0,
+    cadence: 'monthly',
+    note: 'routing lowers real cost; tool models one model',
+  },
+  {
+    id: 'gap-data-residency',
+    label: 'Data residency / compliance (gov)',
+    amount: 0,
+    cadence: 'monthly',
+    note: 'in-country hosting + audits',
+  },
+  {
+    id: 'gap-guardrails',
+    label: 'Guardrails / answer validation',
+    amount: 0,
+    cadence: 'monthly',
+    note: 'wrong benefit amounts are high-harm',
+  },
+  {
+    id: 'gap-reindexing',
+    label: 'Corpus re-indexing (scheme updates)',
+    amount: 0,
+    cadence: 'monthly',
+    note: 'recurring as schemes change',
+  },
+];

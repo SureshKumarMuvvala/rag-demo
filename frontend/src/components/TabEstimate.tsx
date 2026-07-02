@@ -152,6 +152,9 @@ export default function TabEstimate({
   const learnBtnRef = useRef<HTMLButtonElement | null>(null);
   const { currency } = useCurrency();
 
+  // Dismissible scenario hint (resets on reload — a hint, not persisted).
+  const [showScenario, setShowScenario] = useState(true);
+
   // "Understand my documents" overlay + a transient save confirmation.
   const [docOpen, setDocOpen] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
@@ -231,6 +234,24 @@ export default function TabEstimate({
 
   return (
     <div className="flex h-[calc(100vh-15.5rem)] min-h-[28rem] flex-col gap-3">
+      {/* Dismissible scenario chip */}
+      {showScenario && (
+        <div className="flex shrink-0 items-center justify-between gap-2 rounded-xl border border-petrol/30 bg-tinted-surface/50 px-3 py-1.5">
+          <span className="min-w-0 truncate font-mono text-[11px] text-ink/70">
+            <span className="font-semibold text-petrol">Scenario: Saarthi (Government Welfare)</span>{' '}
+            — illustrative defaults, edit freely.
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss scenario note"
+            onClick={() => setShowScenario(false)}
+            className="shrink-0 rounded-md px-1.5 font-mono text-sm text-ink/50 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* "Understand my documents" entry */}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-borders bg-surfaces px-4 py-2.5 shadow-card">
         <div className="flex items-center gap-2">

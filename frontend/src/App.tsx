@@ -5,7 +5,7 @@ import TabEstimate from './components/TabEstimate';
 import TabPropose from './components/TabPropose';
 import TabBuildVsBuy from './components/TabBuildVsBuy';
 import TabScale from './components/TabScale';
-import { DEFAULT_INPUTS } from './lib/types';
+import { DEFAULT_INPUTS, DEFAULT_MISC } from './lib/types';
 import type { Inputs, MiscItem, Overrides } from './lib/types';
 import { defaultProposalMeta, PRICES_AS_OF } from './lib/proposal';
 import type { ProposalMeta } from './lib/proposal';
@@ -43,7 +43,7 @@ function AppInner() {
   const { currency } = useCurrency();
   const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS);
   const [overrides, setOverrides] = useState<Overrides>({});
-  const [misc, setMisc] = useState<MiscItem[]>([]);
+  const [misc, setMisc] = useState<MiscItem[]>(() => DEFAULT_MISC.map((m) => ({ ...m })));
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [proposalMeta, setProposalMeta] = useState<ProposalMeta>(() =>
     defaultProposalMeta(todayISO()),

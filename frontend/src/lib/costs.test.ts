@@ -54,11 +54,17 @@ describe('calculateCosts', () => {
     // chunkSize=512, outputTokens=500 => tokens/req = 1500 + 5*512 + 0 + 500 = 4560.
     // One-GPU capacity boundary = floor(1_300_000_000 / 4560) = 285_087 requests.
     // Two-GPU capacity boundary = floor(2 * 1_300_000_000 / 4560) = 570_175 requests.
+    // Pin the token-driving inputs this test's arithmetic assumes, so it stays
+    // independent of the default scenario's traffic settings.
     const baseInputs = {
       ...DEFAULT_INPUTS,
       genModel: 'open-weight-gpu' as const,
       cacheHitRate: '0' as const,
       userQueryTokens: 0,
+      topK: '5' as const,
+      chunkSize: '512' as const,
+      systemPromptTokens: '1500' as const,
+      outputTokens: 500,
     };
 
     // 285_087 reqs => 285_087 * 4560 = 1_299_996_720 tokens => ceil(.../1.3e9) = 1 step
@@ -187,16 +193,18 @@ describe('calculateCosts', () => {
     // setup should be amortMonths * the monthly embed bucket.
     expect(result.setup).toBeCloseTo(result.embed * RATES.amortMonths, 6);
 
-    // total must equal the sum of the 8 buckets (no setup).
+    // total must equal the sum of the recurring buckets (no setup).
     const sumOfBuckets =
       result.inference +
+      result.reranking +
       result.vector +
       result.embed +
       result.reindex +
       result.infra +
       result.obs +
       result.network +
-      result.labor;
+      result.labor +
+      result.aiTools;
     expect(result.total).toBeCloseTo(sumOfBuckets, 6);
 
     // Including setup in the sum must overshoot total by exactly setup.
