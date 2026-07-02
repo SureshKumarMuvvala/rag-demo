@@ -83,24 +83,17 @@ export const CONTENT: Topic[] = [
       {
         h: 'The pipeline',
         bullets: [
-          'Ingest & embed your docs → store vectors',
-          'At query time: retrieve candidates → (optionally) rerank',
-          'Feed top-K as context to a generation model → return the answer',
-          'Each arrow costs money',
+          'Ingest & embed docs → store vectors',
+          'Query: retrieve → (optional) rerank → generate',
+          'Every arrow costs money',
         ],
       },
       {
         h: 'The eight layers',
         bullets: [
-          'Inference (generation)',
-          'Reranking',
-          'Vector storage & retrieval',
-          'Ingestion & embedding',
-          'Re-indexing',
-          'App / compute infra',
-          'Observability & evals',
-          'Engineering labor',
-          "Inference is the visible one; the other seven are the 'waterline' costs",
+          'Inference, reranking, vector store, embedding',
+          'Re-indexing, infra, observability, labor',
+          "Inference is visible; the other seven are the 'waterline'",
         ],
       },
       {
@@ -109,9 +102,6 @@ export const CONTENT: Topic[] = [
           { k: 'Low volume', v: 'labor dominates' },
           { k: 'High volume', v: 'inference dominates' },
           { k: 'At rest', v: 'storage dominates' },
-        ],
-        bullets: [
-          'Design decisions (model, chunking, caching, managed vs self-host) move the totals more than any single price',
         ],
       },
     ],
@@ -128,34 +118,34 @@ export const CONTENT: Topic[] = [
       {
         h: 'A token ≈ ¾ of a word',
         bullets: [
-          '~4 characters of English ≈ 1 token',
+          '~4 characters ≈ 1 token',
           'Cost scales with tokens, not pages',
-          'Same content can cost 5× more depending on how you feed it in',
+          'Format matters more than length',
         ],
       },
       {
         h: 'Tokens per page (rules of thumb)',
         facts: [
-          { k: 'Clean text page', v: '~350–600 tokens (use ~500)' },
-          { k: 'Table-heavy page', v: '~1.5–2× text (~800–1,200)' },
-          { k: 'Scanned / image page', v: '~250–1,300 (vision; OpenAI 1024px ≈ 1,290)' },
-          { k: 'Raw PDF (as-is)', v: '1,500–3,000 / page (layout + binary noise)' },
+          { k: 'Clean text page', v: '~500 tokens' },
+          { k: 'Table-heavy page', v: '~800–1,200' },
+          { k: 'Scanned / image page', v: '~250–1,300 (vision)' },
+          { k: 'Raw PDF (as-is)', v: '1,500–3,000' },
         ],
       },
       {
-        h: 'Biggest lever: convert to Markdown first',
+        h: 'Biggest lever: convert to Markdown',
         bullets: [
-          'Strip PDF noise → clean Markdown cuts tokens ~65–90%, no content loss',
+          'Clean Markdown cuts tokens ~65–90%',
           'Tools: pymupdf4llm, Marker, MarkItDown',
-          'Usually the highest-ROI ingestion optimization',
+          'Highest-ROI ingestion win',
         ],
       },
       {
         h: 'Chunking',
         bullets: [
-          'Split docs into chunks (256 / 512 / 1024 tokens) before embedding',
-          'Overlap (10–25%) improves retrieval',
-          '…but inflates embed tokens AND the number of vectors stored',
+          'Split into 256 / 512 / 1024-token chunks',
+          'Overlap 10–25% improves retrieval',
+          '…but inflates embed tokens & vectors stored',
         ],
       },
     ],
@@ -177,6 +167,33 @@ export const CONTENT: Topic[] = [
     preset: { field: 'tokensPerPage', note: 'Set your avg tokens/page from the lab above.' },
   },
   {
+    id: 'traffic',
+    icon: 'map',
+    title: 'Requests & traffic',
+    summary: 'What each request costs — volume, tokens in and out, and retrieval depth.',
+    sections: [
+      {
+        h: 'What drives traffic cost',
+        facts: [
+          { k: 'Requests / month', v: 'scales every per-request cost' },
+          { k: 'Avg input', v: 'system prompt + retrieved context + query' },
+          { k: 'Output tokens', v: 'cost ~4–5× input' },
+          { k: 'Top-K', v: 'more chunks → more context tokens' },
+        ],
+      },
+      {
+        h: 'Sessions',
+        bullets: [
+          'Multi-turn sessions resend context each turn',
+          'Caching helps only when the prefix is reused',
+        ],
+      },
+    ],
+    table: null,
+    links: [],
+    preset: null,
+  },
+  {
     id: 'embeddings',
     icon: 'vector',
     title: 'Embedding models',
@@ -186,26 +203,26 @@ export const CONTENT: Topic[] = [
       {
         h: 'What it is',
         bullets: [
-          'Maps each chunk to a vector of N numbers (dimensions)',
+          'Maps each chunk to a vector of N dimensions',
           'Similar meaning → nearby vectors',
-          'Billed per input token; there are no output tokens',
+          'Billed per input token; no output tokens',
         ],
       },
       {
         h: 'Why dimension matters',
         facts: [
-          { k: 'Storage', v: 'vectors × dimensions × 4 bytes (float32) × ~1.5 HNSW overhead' },
+          { k: 'Storage', v: 'vectors × dims × 4 bytes × ~1.5 (HNSW)' },
         ],
         bullets: [
-          'A 3072-dim model costs ~4× the storage of a 768-dim one (same corpus)',
-          'Matryoshka truncation (OpenAI, Cohere, Voyage) trades a little quality for smaller vectors',
+          '3072-dim ≈ 4× the storage of 768-dim',
+          'Matryoshka truncation shrinks vectors for a little quality',
         ],
       },
       {
         h: 'Cost reality',
         bullets: [
-          'Embedding is the cheapest API line — often a few dollars for a whole corpus',
-          'The recurring vector STORAGE it creates usually dwarfs the one-time embedding cost within a few months',
+          'Cheapest API line — often a few dollars for a corpus',
+          'The vector STORAGE it creates soon dwarfs it',
         ],
       },
     ],
@@ -239,27 +256,26 @@ export const CONTENT: Topic[] = [
       {
         h: 'What it is',
         bullets: [
-          'Store optimized for nearest-neighbor search over embeddings (usually an HNSW index)',
-          'At query time it returns the top candidates for a query vector',
+          'Nearest-neighbor search over embeddings (HNSW)',
+          'Returns the top candidates for a query vector',
           'Supports metadata filtering',
         ],
       },
       {
         h: 'Managed vs self-hosted',
         facts: [
-          { k: 'Managed', v: 'zero ops, higher per-unit cost; per-GB + per-read/write or per-node-hour' },
-          { k: 'Self-hosted', v: 'free license; pay only infra (VPS/K8s node) + engineering time' },
-          { k: 'Crossover', v: 'usually tens of millions of vectors or high query volume' },
+          { k: 'Managed', v: 'zero ops; per-GB + reads/writes or node-hour' },
+          { k: 'Self-hosted', v: 'free license; pay infra + eng time' },
+          { k: 'Crossover', v: 'tens of millions of vectors' },
         ],
       },
       {
         h: 'Cost levers',
         bullets: [
           'Storage (GB, driven by dimensions)',
-          'Read units (queries × candidates fetched)',
-          'Write units (upserts)',
-          'Re-index compute when you change models',
-          'Managed bills routinely land 2.5–4× higher in production once reads/writes/egress are included',
+          'Reads (queries × candidates) + writes (upserts)',
+          'Re-index compute when you switch models',
+          'Managed bills often land 2.5–4× higher in production',
         ],
       },
     ],
@@ -305,24 +321,23 @@ export const CONTENT: Topic[] = [
       {
         h: 'What it is',
         bullets: [
-          'First-stage retrieval (bi-encoder) fetches ~50–100 candidates fast but imprecisely',
-          'A reranker (cross-encoder) reads each query+document pair TOGETHER and re-sorts them',
-          'Pass only the top ~10 best chunks to the LLM → better answers AND fewer context tokens',
+          'First stage fetches ~50–100 candidates fast',
+          'Cross-encoder re-scores query+chunk pairs together',
+          'Pass top ~10 to the LLM → better, fewer tokens',
         ],
       },
       {
         h: "How it's billed",
         bullets: [
-          'Managed rerankers charge per SEARCH (one search re-scores the whole candidate pool)',
-          'Documents over ~500 tokens split into chunks that each count',
-          'Self-hosted rerankers cost only GPU',
+          'Managed: charged per search (whole pool)',
+          'Docs over ~500 tokens split into counted chunks',
+          'Self-hosted: GPU only',
         ],
       },
       {
         h: 'When to skip',
         bullets: [
-          'Small/clean corpus where retrieval already returns the right chunk first',
-          'A reranker adds latency for little gain there',
+          'Small/clean corpus where retrieval already nails it',
           'Measure lift on YOUR corpus',
         ],
       },
@@ -362,26 +377,26 @@ export const CONTENT: Topic[] = [
       {
         h: 'Providers',
         facts: [
-          { k: 'Closed APIs', v: 'OpenAI (GPT-5.x), Anthropic (Claude), Google (Gemini), Cohere (Command), Mistral, xAI (Grok)' },
-          { k: 'Open-weight', v: 'Meta Llama, Qwen, DeepSeek (self-host or rent)' },
-          { k: 'Aggregators / hosts', v: 'OpenRouter, AWS Bedrock, Google Vertex, Azure AI Foundry' },
+          { k: 'Closed APIs', v: 'OpenAI, Anthropic, Google, Cohere, Mistral, xAI' },
+          { k: 'Open-weight', v: 'Llama, Qwen, DeepSeek' },
+          { k: 'Hosts', v: 'OpenRouter, Bedrock, Vertex, Azure' },
         ],
       },
       {
         h: 'What drives cost',
         bullets: [
-          'Input tokens = system prompt + retrieved context + query',
-          'Output tokens cost 4–5× input',
-          "Reasoning models bill hidden 'thinking' tokens at the output rate",
-          'Context above ~200–270K often triggers a higher pricing tier',
+          'Input = system prompt + context + query',
+          'Output costs ~4–5× input',
+          "Reasoning models bill hidden 'thinking' tokens",
+          '>~200–270K context can trigger a higher tier',
         ],
       },
       {
         h: 'Cheapest lever',
         bullets: [
-          'Route simple work to a small model (nano / flash / haiku)',
+          'Route simple work to a small model',
           'Reserve the flagship for hard queries',
-          'Cache the stable prefix (see Caching)',
+          'Cache the stable prefix',
         ],
       },
     ],
@@ -427,9 +442,9 @@ export const CONTENT: Topic[] = [
       {
         h: 'The RAG catch',
         bullets: [
-          'Only the STABLE prefix caches',
-          'Retrieved context and the user query change every request → never cache',
-          'RAG caching saves less than people expect unless you reuse context across turns in a session',
+          'Only the stable prefix caches',
+          'Context + query change every request → never cache',
+          'Big wins only when context is reused across turns',
         ],
       },
     ],
@@ -460,26 +475,26 @@ export const CONTENT: Topic[] = [
       {
         h: 'Ingress vs egress',
         bullets: [
-          'Uploading data IN is free on all major clouds',
-          'Serving/moving data OUT (egress) is charged per GB',
-          'Deliberately asymmetric to create lock-in',
+          'Upload IN is free',
+          'Serving OUT (egress) is charged per GB',
+          'Asymmetric by design (lock-in)',
         ],
       },
       {
         h: "It's tiered",
         facts: [
-          { k: 'AWS', v: 'first 100 GB free, then $0.09/GB to 10 TB, $0.085 to 50 TB, $0.07 to 150 TB, $0.05 above' },
-          { k: 'GCP Premium', v: '$0.12 first TB, $0.11 next 9 TB, $0.08 above' },
+          { k: 'AWS', v: '100 GB free, then ~$0.09/GB' },
+          { k: 'GCP Premium', v: '$0.12/GB first TB' },
           { k: 'Cloudflare R2', v: '$0 egress' },
         ],
       },
       {
-        h: 'Hidden ones',
+        h: 'Hidden surcharges',
         facts: [
           { k: 'NAT Gateway', v: '+$0.045/GB' },
           { k: 'Cross-AZ traffic', v: '+$0.01/GB each way' },
         ],
-        bullets: ['Quietly add 50–200% on top of base egress'],
+        bullets: ['Can add 50–200% on top of base egress'],
       },
     ],
     table: {
@@ -515,16 +530,16 @@ export const CONTENT: Topic[] = [
         h: 'Labor',
         facts: [{ k: 'Loaded engineer', v: '≈ $12–16k / month' }],
         bullets: [
-          'Building & maintaining ingestion, evals, and infra is typically the largest cost (esp. self-hosted)',
-          'Managed stacks need less ongoing ops than self-hosted',
+          'Ingestion, evals & infra upkeep is often the biggest line',
+          'Managed needs less ongoing ops than self-hosted',
         ],
       },
       {
         h: 'Observability & evals',
         bullets: [
-          'Tracing, logging, and quality evaluation — almost always forgotten at the demo stage',
-          'Tools: LangSmith, Langfuse, Arize Phoenix, Ragas (open-source evals)',
-          'Budget a fixed monthly floor plus a small % of inference',
+          'Tracing, logging & quality evals — usually forgotten',
+          'Tools: LangSmith, Langfuse, Phoenix, Ragas',
+          'Budget a fixed floor + a % of inference',
         ],
       },
     ],

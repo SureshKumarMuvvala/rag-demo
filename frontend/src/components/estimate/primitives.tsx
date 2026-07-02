@@ -1,4 +1,6 @@
 import { forwardRef, useRef } from 'react';
+import { USD_TO_INR, currencySymbol, useCurrency } from '../../lib/currency';
+import { CUSTOM_MODEL_FALLBACK } from '../../lib/labels';
 
 // ---------------------------------------------------------------------------
 // Radio-card tile group
@@ -20,8 +22,8 @@ interface TileGroupProps<T extends string> {
   onChange: (v: T) => void;
   onHelp?: (topicId: string) => void;
   columns?: 2 | 3 | 4;
-  /** Optional trailing "＋ Custom" tile. */
-  custom?: { active: boolean; onSelect: () => void };
+  /** Optional trailing "＋ Custom" tile. `title`/`sub` override its label. */
+  custom?: { active: boolean; onSelect: () => void; title?: string; sub?: string };
 }
 
 const COL_CLASS: Record<2 | 3 | 4, string> = {
@@ -93,8 +95,8 @@ export function TileGroup<T extends string>({
             ref={(el) => {
               btnRefs.current[options.length] = el;
             }}
-            title="＋ Custom"
-            sub="hand-set pricing"
+            title={custom.active ? custom.title ?? '＋ Custom' : '＋ Custom'}
+            sub={custom.active ? custom.sub ?? 'hand-set pricing' : 'hand-set pricing'}
             selected={custom.active}
             isCustom
             tabIndex={selectedIndex === options.length ? 0 : -1}
@@ -222,6 +224,8 @@ export function NumberField({
   prefix,
   suffix,
   step = 'any',
+  min,
+  max,
 }: {
   label: string;
   value: number;
@@ -229,6 +233,8 @@ export function NumberField({
   prefix?: string;
   suffix?: string;
   step?: number | 'any';
+  min?: number;
+  max?: number;
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -239,12 +245,81 @@ export function NumberField({
           type="number"
           inputMode="decimal"
           step={step}
+          min={min}
+          max={max}
           value={Number.isFinite(value) ? value : ''}
           onChange={(e) => onChange(Number(e.target.value))}
           className="w-full bg-transparent font-mono text-[13px] tabular-nums text-ink focus:outline-none"
         />
         {suffix && <span className="font-mono text-[11px] text-ink/50">{suffix}</span>}
       </span>
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Money field — edits in the selected currency, stores USD
+// ---------------------------------------------------------------------------
+
+/**
+ * A currency-aware money input. The user types in the selected display currency;
+ * the value is stored/returned in USD (the model's authoring currency). `min`/`max`
+ * are expressed in USD.
+ */
+export function MoneyField({
+  label,
+  valueUsd,
+  onChangeUsd,
+  step,
+  min,
+  max,
+}: {
+  label: string;
+  valueUsd: number;
+  onChangeUsd: (usd: number) => void;
+  step?: number | 'any';
+  min?: number;
+  max?: number;
+}) {
+  const { currency } = useCurrency();
+  const rate = currency === 'INR' ? USD_TO_INR : 1;
+  const shown = Number.isFinite(valueUsd) ? Math.round(valueUsd * rate) : 0;
+  return (
+    <NumberField
+      label={label}
+      prefix={currencySymbol(currency)}
+      value={shown}
+      step={step}
+      min={min != null ? Math.round(min * rate) : undefined}
+      max={max != null ? Math.round(max * rate) : undefined}
+      onChange={(v) => onChangeUsd((Number.isFinite(v) ? v : 0) / rate)}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Custom model name field ("Bring Your Model")
+// ---------------------------------------------------------------------------
+
+export function CustomNameField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-ink/55">
+        Custom name
+      </span>
+      <input
+        type="text"
+        value={value}
+        placeholder={CUSTOM_MODEL_FALLBACK}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-lg border border-borders bg-surfaces px-2 py-1.5 font-body text-[13px] text-ink placeholder:text-ink/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
+      />
     </label>
   );
 }

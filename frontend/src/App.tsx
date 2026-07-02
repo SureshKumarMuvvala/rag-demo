@@ -1,7 +1,6 @@
 import { Fragment, useRef, useState } from 'react';
 import Hero from './components/Hero';
 import Icon from './components/Icon';
-import TabExplore from './components/TabExplore';
 import TabEstimate from './components/TabEstimate';
 import TabPropose from './components/TabPropose';
 import TabBuildVsBuy from './components/TabBuildVsBuy';
@@ -10,7 +9,7 @@ import { DEFAULT_INPUTS } from './lib/types';
 import type { Inputs, MiscItem, Overrides } from './lib/types';
 import { defaultProposalMeta, PRICES_AS_OF } from './lib/proposal';
 import type { ProposalMeta } from './lib/proposal';
-import type { PresetField } from './lib/exploreContent';
+import { CurrencyProvider, useCurrency } from './lib/currency';
 
 interface TabDef {
   index: number;
@@ -19,38 +18,33 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { index: 0, key: 'explore', label: 'Explore' },
-  { index: 1, key: 'estimate', label: 'Estimate' },
-  { index: 2, key: 'propose', label: 'Propose' },
-  { index: 3, key: 'buildvsbuy', label: 'Build vs. Buy' },
-  { index: 4, key: 'scale', label: 'Scale & Break-even' },
+  { index: 0, key: 'estimate', label: 'Estimate' },
+  { index: 1, key: 'propose', label: 'Propose' },
+  { index: 2, key: 'buildvsbuy', label: 'Build vs. Buy' },
+  { index: 3, key: 'scale', label: 'Scale & Break-even' },
 ];
 
-const ESTIMATE_INDEX = 1;
-// A petrol flow arrow precedes these tab indices (Explore → Estimate → Propose).
-const FLOW_ARROW_BEFORE = new Set([1, 2]);
-
-/** Explore preset fields → the override key to clear when a preset is applied. */
-const PRESET_TO_OVERRIDE: Partial<Record<PresetField, keyof Overrides>> = {
-  genModel: 'genModel',
-  embedModel: 'embedModel',
-  vectorDb: 'vectorDb',
-  reranker: 'reranker',
-  cloudProvider: 'cloud',
-};
+// A petrol flow arrow precedes Propose (the Estimate → Propose workflow arc).
+const FLOW_ARROW_BEFORE = new Set([1]);
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
 export default function App() {
+  return (
+    <CurrencyProvider>
+      <AppInner />
+    </CurrencyProvider>
+  );
+}
+
+function AppInner() {
+  const { currency } = useCurrency();
   const [inputs, setInputs] = useState<Inputs>(DEFAULT_INPUTS);
   const [overrides, setOverrides] = useState<Overrides>({});
   const [misc, setMisc] = useState<MiscItem[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
-  const [exploreTopic, setExploreTopic] = useState<string>('overview');
-  const [presetField, setPresetField] = useState<PresetField | null>(null);
-  const [presetNonce, setPresetNonce] = useState<number>(0);
   const [proposalMeta, setProposalMeta] = useState<ProposalMeta>(() =>
     defaultProposalMeta(todayISO()),
   );
@@ -66,29 +60,6 @@ export default function App() {
 
   const handleMetaChange = (patch: Partial<ProposalMeta>) =>
     setProposalMeta((prev) => ({ ...prev, ...patch }));
-
-  const handleApplyPreset = (patch: Partial<Inputs>, field: PresetField) => {
-    if (Object.keys(patch).length > 0) {
-      setInputs((prev) => ({ ...prev, ...patch }));
-    }
-    const ovKey = PRESET_TO_OVERRIDE[field];
-    if (ovKey) {
-      setOverrides((prev) => {
-        if (prev[ovKey] == null) return prev;
-        const next = { ...prev };
-        delete next[ovKey];
-        return next;
-      });
-    }
-    setActiveIndex(ESTIMATE_INDEX);
-    setPresetField(field);
-    setPresetNonce((n) => n + 1);
-  };
-
-  const handleOpenExplore = (topicId: string) => {
-    setExploreTopic(topicId);
-    setActiveIndex(0);
-  };
 
   return (
     <div className="min-h-full rag-scroll">
@@ -153,15 +124,6 @@ export default function App() {
         {/* Active tab panel */}
         <div className="mt-4">
           {activeIndex === 0 && (
-            <TabExplore
-              inputs={inputs}
-              selectedId={exploreTopic}
-              onSelectTopic={setExploreTopic}
-              onApplyPreset={handleApplyPreset}
-              onWriteInputs={handleInputChange}
-            />
-          )}
-          {activeIndex === 1 && (
             <TabEstimate
               inputs={inputs}
               onChange={handleInputChange}
@@ -170,22 +132,19 @@ export default function App() {
               misc={misc}
               onMiscChange={setMisc}
               nextMiscId={nextMiscId}
-              onOpenExplore={handleOpenExplore}
-              presetField={presetField}
-              presetNonce={presetNonce}
             />
           )}
-          {activeIndex === 2 && (
+          {activeIndex === 1 && (
             <TabPropose
               inputs={inputs}
               overrides={overrides}
               misc={misc}
-              meta={proposalMeta}
+              meta={{ ...proposalMeta, displayCurrency: currency }}
               onMetaChange={handleMetaChange}
             />
           )}
-          {activeIndex === 3 && <TabBuildVsBuy inputs={inputs} />}
-          {activeIndex === 4 && (
+          {activeIndex === 2 && <TabBuildVsBuy inputs={inputs} />}
+          {activeIndex === 3 && (
             <TabScale inputs={inputs} onQueryChange={handleQueryChange} />
           )}
         </div>

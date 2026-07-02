@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type {
   BucketKey,
   CloudProviderKey,
@@ -12,21 +12,29 @@ import type {
 import { DEFAULT_INPUTS } from '../lib/types';
 import { calculateCosts, formatNumber } from '../lib/costs';
 import { RATES } from '../lib/rates';
-import type { PresetField } from '../lib/exploreContent';
+import { CONTENT } from '../lib/exploreContent';
+import { formatMoneyShort, useCurrency } from '../lib/currency';
 import Icon from './Icon';
 import type { IconName } from './Icon';
 import LogSlider from './LogSlider';
 import RangeSlider from './RangeSlider';
 import SummaryPanel from './estimate/SummaryPanel';
+import LearnPanel from './estimate/LearnPanel';
+import UnderstandDocsOverlay from './estimate/understand/UnderstandDocsOverlay';
 import MiscEditor from './estimate/MiscEditor';
 import {
   CustomBadge,
+  CustomNameField,
+  MoneyField,
   NumberField,
   StatCard,
   TileGroup,
   Toggle,
 } from './estimate/primitives';
 import type { TileOption } from './estimate/primitives';
+import AdvancedDisclosure from './estimate/AdvancedDisclosure';
+import AiToolsEditor from './estimate/AiToolsEditor';
+import { customModelName } from '../lib/labels';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -40,11 +48,6 @@ interface TabEstimateProps {
   misc: MiscItem[];
   onMiscChange: (m: MiscItem[]) => void;
   nextMiscId: () => string;
-  /** Deep-link to an Explore topic (from a tile's "?" button). */
-  onOpenExplore: (topicId: string) => void;
-  /** Preset field arriving from Explore (field + nonce to retrigger). */
-  presetField?: PresetField | null;
-  presetNonce?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,30 +69,27 @@ interface SectionMeta {
   id: SectionId;
   label: string;
   icon: IconName;
-  explore: string;
+  /** Explore topic id backing this section's "Learn" panel (null → no panel). */
+  learn: string | null;
 }
 
+// Section → topic mapping for the per-section "Learn" panel.
+// Corpus → documents (tokens/chunking); Traffic → traffic (requests/tokens);
+// People, Tooling & Misc → labor.
+// Ordered to follow the RAG pipeline (consistent with the Explore diagram):
+// Corpus → Traffic → Embedding → Vector DB → Reranking → Generation →
+// Prompt Caching → Network → People, Tooling & Misc.
 const SECTIONS: SectionMeta[] = [
-  { id: 'corpus', label: 'Corpus', icon: 'file-text', explore: 'documents' },
-  { id: 'traffic', label: 'Traffic', icon: 'map', explore: 'generation' },
-  { id: 'generation', label: 'Generation model', icon: 'cpu', explore: 'generation' },
-  { id: 'embedding', label: 'Embedding model', icon: 'vector', explore: 'embeddings' },
-  { id: 'vectordb', label: 'Vector database', icon: 'database', explore: 'vectordb' },
-  { id: 'reranking', label: 'Reranking', icon: 'sort', explore: 'reranking' },
-  { id: 'caching', label: 'Caching', icon: 'layers', explore: 'caching' },
-  { id: 'network', label: 'Network', icon: 'globe', explore: 'network' },
-  { id: 'team', label: 'Team & misc', icon: 'users', explore: 'labor' },
+  { id: 'corpus', label: 'Corpus', icon: 'file-text', learn: 'documents' },
+  { id: 'traffic', label: 'Traffic', icon: 'map', learn: 'traffic' },
+  { id: 'embedding', label: 'Embedding model', icon: 'vector', learn: 'embeddings' },
+  { id: 'vectordb', label: 'Vector database', icon: 'database', learn: 'vectordb' },
+  { id: 'reranking', label: 'Reranking', icon: 'sort', learn: 'reranking' },
+  { id: 'generation', label: 'Generation model', icon: 'cpu', learn: 'generation' },
+  { id: 'caching', label: 'Prompt Caching', icon: 'layers', learn: 'caching' },
+  { id: 'network', label: 'Network', icon: 'globe', learn: 'network' },
+  { id: 'team', label: 'People, Tooling & Misc', icon: 'users', learn: 'labor' },
 ];
-
-const PRESET_TO_SECTION: Record<PresetField, SectionId> = {
-  tokensPerPage: 'corpus',
-  genModel: 'generation',
-  embedModel: 'embedding',
-  vectorDb: 'vectordb',
-  reranker: 'reranking',
-  cacheTTL: 'caching',
-  cloudProvider: 'network',
-};
 
 // ---------------------------------------------------------------------------
 // Tile option builders (labels/specs pulled from RATES)
@@ -143,37 +143,31 @@ export default function TabEstimate({
   misc,
   onMiscChange,
   nextMiscId,
-  onOpenExplore,
-  presetField,
-  presetNonce,
 }: TabEstimateProps) {
   const [active, setActive] = useState<SectionId>('corpus');
-  const [flash, setFlash] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Per-section Learn-panel open state (independent; all closed on load).
+  const [learnOpen, setLearnOpen] = useState<Partial<Record<SectionId, boolean>>>({});
   const railRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const flashTimer = useRef<number | null>(null);
+  const learnBtnRef = useRef<HTMLButtonElement | null>(null);
+  const { currency } = useCurrency();
+
+  // "Understand my documents" overlay + a transient save confirmation.
+  const [docOpen, setDocOpen] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+
+  function handleDocSave(patch: Partial<Inputs>) {
+    onChange(patch);
+    setDocOpen(false);
+    setSavedToast(true);
+    if (savedTimer.current) window.clearTimeout(savedTimer.current);
+    savedTimer.current = window.setTimeout(() => setSavedToast(false), 2400);
+  }
 
   const costs = useMemo(
     () => calculateCosts(inputs, { overrides, misc }),
     [inputs, overrides, misc],
-  );
-
-  // Arrive-from-Explore: open the matching section and flash it.
-  useEffect(() => {
-    if (!presetField) return;
-    const section = PRESET_TO_SECTION[presetField];
-    setActive(section);
-    setFlash(true);
-    if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlash(false), 1900);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presetNonce]);
-
-  useEffect(
-    () => () => {
-      if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    },
-    [],
   );
 
   function moveSection(delta: number) {
@@ -212,6 +206,16 @@ export default function TabEstimate({
   }
 
   const meta = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0];
+  const learnTopic = meta.learn ? CONTENT.find((t) => t.id === meta.learn) ?? null : null;
+  const isLearnOpen = !!learnOpen[active];
+
+  function toggleLearn() {
+    setLearnOpen((o) => ({ ...o, [active]: !o[active] }));
+  }
+  function closeLearn() {
+    setLearnOpen((o) => ({ ...o, [active]: false }));
+    window.requestAnimationFrame(() => learnBtnRef.current?.focus());
+  }
 
   const centerProps = {
     inputs,
@@ -219,7 +223,6 @@ export default function TabEstimate({
     overrides,
     setOverride,
     clearOverrideKey,
-    onOpenExplore,
     misc,
     onMiscChange,
     nextMiscId,
@@ -227,7 +230,30 @@ export default function TabEstimate({
   };
 
   return (
-    <div className="flex h-[calc(100vh-15.5rem)] min-h-[28rem] flex-col gap-3 wide:grid wide:grid-cols-[240px_minmax(0,1fr)_320px] wide:gap-6">
+    <div className="flex h-[calc(100vh-15.5rem)] min-h-[28rem] flex-col gap-3">
+      {/* "Understand my documents" entry */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-borders bg-surfaces px-4 py-2.5 shadow-card">
+        <div className="flex items-center gap-2">
+          <Icon name="file-text" className="h-4 w-4 text-petrol" />
+          <span className="font-display text-[13px] font-medium text-ink">
+            Not sure of your corpus inputs?
+          </span>
+          <span className="hidden font-mono text-[10px] text-ink/55 sm:inline">
+            analyze real files or preview sample pages
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setDocOpen(true)}
+          className="inline-flex items-center gap-2 rounded-xl bg-petrol px-3.5 py-2 font-display text-[13px] font-medium text-white shadow-sm transition-colors hover:bg-petrol-light focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light focus-visible:ring-offset-2 focus-visible:ring-offset-page-bg"
+        >
+          <Icon name="file-text" className="h-4 w-4" />
+          Understand my documents
+        </button>
+      </div>
+
+      {/* Configuration grid */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 wide:grid wide:grid-cols-[240px_minmax(0,1fr)_320px] wide:gap-6">
       {/* Mobile section chip bar */}
       <div className="flex shrink-0 gap-2 overflow-x-auto rag-scroll pb-1 wide:hidden">
         {SECTIONS.map((s) => (
@@ -297,7 +323,7 @@ export default function TabEstimate({
                     isActive ? 'text-white/70' : 'text-ink/55',
                   ].join(' ')}
                 >
-                  <span className="truncate">{sectionSummary(s.id, inputs)}</span>
+                  <span className="truncate">{sectionSummary(s.id, inputs, overrides)}</span>
                   {sectionOverridden(s.id, inputs, overrides) && <CustomBadge />}
                 </span>
               </span>
@@ -311,21 +337,44 @@ export default function TabEstimate({
         aria-label={`${meta.label} settings`}
         className={[
           'min-h-0 flex-1 overflow-y-auto rag-scroll rounded-2xl border border-borders bg-surfaces p-5 shadow-card md:p-6',
-          flash ? 'field-flash' : '',
         ].join(' ')}
       >
-        <header className="mb-4 flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-tinted-surface text-petrol">
-            <Icon name={meta.icon} className="h-4.5 w-4.5" />
+        <header className="mb-4 flex items-center justify-between gap-2.5">
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-tinted-surface text-petrol">
+              <Icon name={meta.icon} className="h-4.5 w-4.5" />
+            </span>
+            <h2 className="font-display text-lg font-semibold text-ink">{meta.label}</h2>
           </span>
-          <h2 className="font-display text-lg font-semibold text-ink">{meta.label}</h2>
+          {learnTopic && (
+            <button
+              ref={learnBtnRef}
+              type="button"
+              aria-expanded={isLearnOpen}
+              onClick={toggleLearn}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-ink/55 transition-colors hover:bg-tinted-surface hover:text-petrol focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
+            >
+              <Icon name="book" className="h-3.5 w-3.5" />
+              {isLearnOpen ? 'Hide' : 'Learn'}
+            </button>
+          )}
         </header>
+        {learnTopic && (
+          <LearnPanel
+            key={active}
+            topic={learnTopic}
+            open={isLearnOpen}
+            onClose={closeLearn}
+            inputs={inputs}
+            onWriteInputs={onChange}
+          />
+        )}
         <SectionBody section={active} {...centerProps} />
       </section>
 
       {/* Desktop summary */}
       <aside className="hidden h-full min-h-0 overflow-y-auto rag-scroll rounded-2xl border border-borders bg-surfaces p-5 shadow-card wide:block">
-        <SummaryPanel costs={costs} overrides={overrides} misc={misc} onPinBucket={onPinBucket} />
+        <SummaryPanel costs={costs} overrides={overrides} misc={misc} inputs={inputs} onPinBucket={onPinBucket} />
       </aside>
 
       {/* Mobile pinned total + bottom sheet */}
@@ -336,6 +385,7 @@ export default function TabEstimate({
               costs={costs}
               overrides={overrides}
               misc={misc}
+              inputs={inputs}
               onPinBucket={onPinBucket}
             />
           </div>
@@ -350,12 +400,30 @@ export default function TabEstimate({
           </span>
           <span className="flex items-center gap-2">
             <span className="font-mono text-xl font-semibold tabular-nums">
-              {formatCostShort(costs.total)}
+              {formatMoneyShort(costs.total, currency)}
             </span>
             <span className="text-white/60">{sheetOpen ? '▾' : '▴'}</span>
           </span>
         </button>
       </div>
+      </div>
+
+      {docOpen && (
+        <UnderstandDocsOverlay
+          inputs={inputs}
+          onSave={handleDocSave}
+          onClose={() => setDocOpen(false)}
+        />
+      )}
+
+      {savedToast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl bg-ink px-4 py-2 font-mono text-[12px] text-white shadow-card"
+        >
+          ✓ Saved to estimate
+        </div>
+      )}
     </div>
   );
 }
@@ -370,7 +438,6 @@ interface CenterProps {
   overrides: Overrides;
   setOverride: (patch: Partial<Overrides>) => void;
   clearOverrideKey: (key: keyof Overrides) => void;
-  onOpenExplore: (topicId: string) => void;
   misc: MiscItem[];
   onMiscChange: (m: MiscItem[]) => void;
   nextMiscId: () => string;
@@ -402,7 +469,8 @@ function SectionBody({ section, ...p }: { section: SectionId } & CenterProps) {
 
 // ---- Corpus ------------------------------------------------------------
 
-function CorpusSection({ inputs, onChange, onOpenExplore }: CenterProps) {
+function CorpusSection({ inputs, onChange }: CenterProps) {
+  const [adv, setAdv] = useState(false);
   return (
     <div className="flex flex-col gap-5">
       <StatCard>
@@ -411,9 +479,33 @@ function CorpusSection({ inputs, onChange, onOpenExplore }: CenterProps) {
           value={inputs.documents}
           min={1_000}
           max={2_000_000}
+          floorZero
+          minLabel="0"
           format={formatNumber}
           onChange={(v) => onChange({ documents: v })}
         />
+        <div className="mt-3 flex flex-wrap items-end gap-3 border-t border-borders/60 pt-3">
+          <div className="w-40">
+            <NumberField
+              label="Exact count"
+              value={inputs.documents}
+              min={0}
+              max={2_000_000}
+              step={1000}
+              suffix="docs"
+              onChange={(v) =>
+                onChange({
+                  documents: Number.isFinite(v)
+                    ? Math.min(2_000_000, Math.max(0, Math.round(v)))
+                    : 0,
+                })
+              }
+            />
+          </div>
+          <p className="pb-1 font-mono text-[10px] text-ink/50">
+            Type <span className="text-ink/70">0</span> for a query-only / no-corpus estimate.
+          </p>
+        </div>
       </StatCard>
 
       <TileGroup
@@ -447,66 +539,70 @@ function CorpusSection({ inputs, onChange, onOpenExplore }: CenterProps) {
         </div>
       )}
 
-      <TileGroup
-        label="Tokens per page"
-        value={inputs.tokensPerPage}
-        options={[
-          { value: 'sparse', title: 'Sparse', sub: '300 tok', help: 'documents' },
-          { value: 'standard', title: 'Standard', sub: '500 tok', help: 'documents' },
-          { value: 'dense', title: 'Dense', sub: '650 tok', help: 'documents' },
-        ]}
-        columns={3}
-        onChange={(v) => onChange({ tokensPerPage: v })}
-        onHelp={onOpenExplore}
-        custom={{
-          active: inputs.tokensPerPage === 'custom',
-          onSelect: () =>
-            onChange({
-              tokensPerPage: 'custom',
-              tokensPerPageCustom: inputs.tokensPerPageCustom ?? 500,
-            }),
-        }}
-      />
-      {inputs.tokensPerPage === 'custom' && (
-        <div className="w-40">
-          <NumberField
-            label="Tokens / page"
-            value={inputs.tokensPerPageCustom ?? 500}
-            onChange={(v) => onChange({ tokensPerPageCustom: v })}
-            suffix="tok"
+      <AdvancedDisclosure open={adv} onToggle={() => setAdv((o) => !o)}>
+        <div>
+          <TileGroup
+            label="Tokens per page"
+            value={inputs.tokensPerPage}
+            options={[
+              { value: 'sparse', title: 'Sparse', sub: '300 tok' },
+              { value: 'standard', title: 'Standard', sub: '500 tok' },
+              { value: 'dense', title: 'Dense', sub: '650 tok' },
+            ]}
+            columns={3}
+            onChange={(v) => onChange({ tokensPerPage: v })}
+            custom={{
+              active: inputs.tokensPerPage === 'custom',
+              onSelect: () =>
+                onChange({
+                  tokensPerPage: 'custom',
+                  tokensPerPageCustom: inputs.tokensPerPageCustom ?? 500,
+                }),
+            }}
           />
+          {inputs.tokensPerPage === 'custom' && (
+            <div className="mt-3 w-40">
+              <NumberField
+                label="Tokens / page"
+                value={inputs.tokensPerPageCustom ?? 500}
+                onChange={(v) => onChange({ tokensPerPageCustom: v })}
+                suffix="tok"
+              />
+            </div>
+          )}
         </div>
-      )}
 
-      <TileGroup
-        label="Chunk size"
-        value={inputs.chunkSize}
-        options={[
-          { value: '256', title: '256', sub: 'tokens' },
-          { value: '512', title: '512', sub: 'tokens' },
-          { value: '1024', title: '1024', sub: 'tokens' },
-        ]}
-        columns={3}
-        onChange={(v) => onChange({ chunkSize: v })}
-      />
-      <TileGroup
-        label="Chunk overlap"
-        value={inputs.chunkOverlap}
-        options={[
-          { value: '0', title: '0%', sub: 'no overlap' },
-          { value: '0.10', title: '10%', sub: 'balanced' },
-          { value: '0.25', title: '25%', sub: 'max recall' },
-        ]}
-        columns={3}
-        onChange={(v) => onChange({ chunkOverlap: v })}
-      />
+        <TileGroup
+          label="Chunk size"
+          value={inputs.chunkSize}
+          options={[
+            { value: '256', title: '256', sub: 'tokens' },
+            { value: '512', title: '512', sub: 'tokens' },
+            { value: '1024', title: '1024', sub: 'tokens' },
+          ]}
+          columns={3}
+          onChange={(v) => onChange({ chunkSize: v })}
+        />
+        <TileGroup
+          label="Chunk overlap"
+          value={inputs.chunkOverlap}
+          options={[
+            { value: '0', title: '0%', sub: 'no overlap' },
+            { value: '0.10', title: '10%', sub: 'balanced' },
+            { value: '0.25', title: '25%', sub: 'max recall' },
+          ]}
+          columns={3}
+          onChange={(v) => onChange({ chunkOverlap: v })}
+        />
+      </AdvancedDisclosure>
     </div>
   );
 }
 
 // ---- Traffic -----------------------------------------------------------
 
-function TrafficSection({ inputs, onChange, onOpenExplore }: CenterProps) {
+function TrafficSection({ inputs, onChange }: CenterProps) {
+  const [adv, setAdv] = useState(false);
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -522,86 +618,6 @@ function TrafficSection({ inputs, onChange, onOpenExplore }: CenterProps) {
         </StatCard>
         <StatCard>
           <RangeSlider
-            label="Avg session turns"
-            value={inputs.avgSessionTurns}
-            min={1}
-            max={12}
-            step={1}
-            format={(n) => n.toString()}
-            onChange={(v) => onChange({ avgSessionTurns: v })}
-          />
-        </StatCard>
-      </div>
-
-      <TileGroup
-        label="Top-K chunks retrieved"
-        value={inputs.topK}
-        options={[
-          { value: '3', title: 'k = 3', help: 'generation' },
-          { value: '5', title: 'k = 5', help: 'generation' },
-          { value: '10', title: 'k = 10', help: 'generation' },
-          { value: '20', title: 'k = 20', help: 'generation' },
-        ]}
-        columns={4}
-        onChange={(v) => onChange({ topK: v })}
-        onHelp={onOpenExplore}
-      />
-      <TileGroup
-        label="Rerank candidate pool"
-        value={inputs.rerankCandidatePool}
-        options={[
-          { value: '25', title: '25', sub: 'candidates', help: 'reranking' },
-          { value: '50', title: '50', sub: 'candidates', help: 'reranking' },
-          { value: '100', title: '100', sub: 'candidates', help: 'reranking' },
-        ]}
-        columns={3}
-        onChange={(v) => onChange({ rerankCandidatePool: v })}
-        onHelp={onOpenExplore}
-      />
-      <TileGroup
-        label="System prompt size"
-        value={inputs.systemPromptTokens}
-        options={[
-          { value: '500', title: '500', sub: 'tokens' },
-          { value: '1500', title: '1,500', sub: 'tokens' },
-          { value: '3000', title: '3,000', sub: 'tokens' },
-        ]}
-        columns={3}
-        onChange={(v) => onChange({ systemPromptTokens: v })}
-        custom={{
-          active: inputs.systemPromptTokens === 'custom',
-          onSelect: () =>
-            onChange({
-              systemPromptTokens: 'custom',
-              systemPromptTokensCustom: inputs.systemPromptTokensCustom ?? 1500,
-            }),
-        }}
-      />
-      {inputs.systemPromptTokens === 'custom' && (
-        <div className="w-40">
-          <NumberField
-            label="System prompt tokens"
-            value={inputs.systemPromptTokensCustom ?? 1500}
-            onChange={(v) => onChange({ systemPromptTokensCustom: v })}
-            suffix="tok"
-          />
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <StatCard>
-          <RangeSlider
-            label="User query tokens"
-            value={inputs.userQueryTokens}
-            min={20}
-            max={500}
-            step={1}
-            format={(n) => n.toLocaleString('en-US')}
-            onChange={(v) => onChange({ userQueryTokens: v })}
-          />
-        </StatCard>
-        <StatCard>
-          <RangeSlider
             label="Output tokens"
             value={inputs.outputTokens}
             min={100}
@@ -612,6 +628,87 @@ function TrafficSection({ inputs, onChange, onOpenExplore }: CenterProps) {
           />
         </StatCard>
       </div>
+
+      <AdvancedDisclosure open={adv} onToggle={() => setAdv((o) => !o)}>
+        <TileGroup
+          label="Top-K chunks retrieved"
+          value={inputs.topK}
+          options={[
+            { value: '3', title: 'k = 3' },
+            { value: '5', title: 'k = 5' },
+            { value: '10', title: 'k = 10' },
+            { value: '20', title: 'k = 20' },
+          ]}
+          columns={4}
+          onChange={(v) => onChange({ topK: v })}
+        />
+        <TileGroup
+          label="Rerank candidate pool"
+          value={inputs.rerankCandidatePool}
+          options={[
+            { value: '25', title: '25', sub: 'candidates' },
+            { value: '50', title: '50', sub: 'candidates' },
+            { value: '100', title: '100', sub: 'candidates' },
+          ]}
+          columns={3}
+          onChange={(v) => onChange({ rerankCandidatePool: v })}
+        />
+        <div>
+          <TileGroup
+            label="System prompt size"
+            value={inputs.systemPromptTokens}
+            options={[
+              { value: '500', title: '500', sub: 'tokens' },
+              { value: '1500', title: '1,500', sub: 'tokens' },
+              { value: '3000', title: '3,000', sub: 'tokens' },
+            ]}
+            columns={3}
+            onChange={(v) => onChange({ systemPromptTokens: v })}
+            custom={{
+              active: inputs.systemPromptTokens === 'custom',
+              onSelect: () =>
+                onChange({
+                  systemPromptTokens: 'custom',
+                  systemPromptTokensCustom: inputs.systemPromptTokensCustom ?? 1500,
+                }),
+            }}
+          />
+          {inputs.systemPromptTokens === 'custom' && (
+            <div className="mt-3 w-40">
+              <NumberField
+                label="System prompt tokens"
+                value={inputs.systemPromptTokensCustom ?? 1500}
+                onChange={(v) => onChange({ systemPromptTokensCustom: v })}
+                suffix="tok"
+              />
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <StatCard>
+            <RangeSlider
+              label="User query tokens"
+              value={inputs.userQueryTokens}
+              min={20}
+              max={500}
+              step={1}
+              format={(n) => n.toLocaleString('en-US')}
+              onChange={(v) => onChange({ userQueryTokens: v })}
+            />
+          </StatCard>
+          <StatCard>
+            <RangeSlider
+              label="Avg session turns"
+              value={inputs.avgSessionTurns}
+              min={1}
+              max={12}
+              step={1}
+              format={(n) => n.toString()}
+              onChange={(v) => onChange({ avgSessionTurns: v })}
+            />
+          </StatCard>
+        </div>
+      </AdvancedDisclosure>
     </div>
   );
 }
@@ -623,9 +720,7 @@ function GenerationSection({
   onChange,
   overrides,
   setOverride,
-  clearOverrideKey,
-  onOpenExplore,
-}: CenterProps) {
+  clearOverrideKey,}: CenterProps) {
   const custom = overrides.genModel;
   const isGpu = custom?.gpuMonthly != null;
   return (
@@ -639,9 +734,10 @@ function GenerationSection({
           onChange({ genModel: v });
           if (overrides.genModel) clearOverrideKey('genModel');
         }}
-        onHelp={onOpenExplore}
         custom={{
           active: custom != null,
+          title: custom ? customModelName(custom) : undefined,
+          sub: custom ? 'custom' : undefined,
           onSelect: () => {
             const m = RATES.genModels[inputs.genModel];
             setOverride({
@@ -652,16 +748,24 @@ function GenerationSection({
       />
       {custom && (
         <CustomPanel onReset={() => clearOverrideKey('genModel')}>
-          <div className="mb-2 inline-flex overflow-hidden rounded-lg border border-borders">
+          <CustomNameField
+            value={custom.name ?? ''}
+            onChange={(name) => setOverride({ genModel: { ...custom, name } })}
+          />
+          <div className="mb-2 mt-3 inline-flex overflow-hidden rounded-lg border border-borders">
             <ModeBtn
               active={!isGpu}
               label="API rates"
-              onClick={() => setOverride({ genModel: { in: custom.in ?? 2.5, out: custom.out ?? 15 } })}
+              onClick={() =>
+                setOverride({ genModel: { name: custom.name, in: custom.in ?? 2.5, out: custom.out ?? 15 } })
+              }
             />
             <ModeBtn
               active={isGpu}
               label="Flat $/mo"
-              onClick={() => setOverride({ genModel: { gpuMonthly: custom.gpuMonthly ?? 1080 } })}
+              onClick={() =>
+                setOverride({ genModel: { name: custom.name, gpuMonthly: custom.gpuMonthly ?? 1080 } })
+              }
             />
           </div>
           {isGpu ? (
@@ -669,7 +773,7 @@ function GenerationSection({
               label="Flat generation $/mo"
               value={custom.gpuMonthly ?? 0}
               prefix="$"
-              onChange={(v) => setOverride({ genModel: { gpuMonthly: v } })}
+              onChange={(v) => setOverride({ genModel: { name: custom.name, gpuMonthly: v } })}
             />
           ) : (
             <div className="grid grid-cols-2 gap-3">
@@ -700,9 +804,7 @@ function EmbeddingSection({
   onChange,
   overrides,
   setOverride,
-  clearOverrideKey,
-  onOpenExplore,
-}: CenterProps) {
+  clearOverrideKey,}: CenterProps) {
   const custom = overrides.embedModel;
   return (
     <div className="flex flex-col gap-4">
@@ -715,9 +817,10 @@ function EmbeddingSection({
           onChange({ embedModel: v });
           if (overrides.embedModel) clearOverrideKey('embedModel');
         }}
-        onHelp={onOpenExplore}
         custom={{
           active: custom != null,
+          title: custom ? customModelName(custom) : undefined,
+          sub: custom ? 'custom' : undefined,
           onSelect: () => {
             const m = RATES.embedModels[inputs.embedModel];
             setOverride({ embedModel: { perM: m.perM, dim: m.dim } });
@@ -726,6 +829,12 @@ function EmbeddingSection({
       />
       {custom && (
         <CustomPanel onReset={() => clearOverrideKey('embedModel')}>
+          <div className="mb-3">
+            <CustomNameField
+              value={custom.name ?? ''}
+              onChange={(name) => setOverride({ embedModel: { ...custom, name } })}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <NumberField
               label="$/1M tokens"
@@ -753,9 +862,7 @@ function VectorDbSection({
   onChange,
   overrides,
   setOverride,
-  clearOverrideKey,
-  onOpenExplore,
-  vectorSeed,
+  clearOverrideKey,  vectorSeed,
 }: CenterProps) {
   const custom = overrides.vectorDb;
   const advanced = custom ? custom.flatMonthly == null : false;
@@ -770,14 +877,21 @@ function VectorDbSection({
           onChange({ vectorDb: v });
           if (overrides.vectorDb) clearOverrideKey('vectorDb');
         }}
-        onHelp={onOpenExplore}
         custom={{
           active: custom != null,
+          title: custom ? customModelName(custom) : undefined,
+          sub: custom ? 'custom' : undefined,
           onSelect: () => setOverride({ vectorDb: { flatMonthly: vectorSeed() } }),
         }}
       />
       {custom && (
         <CustomPanel onReset={() => clearOverrideKey('vectorDb')}>
+          <div className="mb-3">
+            <CustomNameField
+              value={custom.name ?? ''}
+              onChange={(name) => setOverride({ vectorDb: { ...custom, name } })}
+            />
+          </div>
           {advanced ? (
             <div className="flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-3">
@@ -808,7 +922,7 @@ function VectorDbSection({
               </div>
               <button
                 type="button"
-                onClick={() => setOverride({ vectorDb: { flatMonthly: vectorSeed() } })}
+                onClick={() => setOverride({ vectorDb: { name: custom.name, flatMonthly: vectorSeed() } })}
                 className="w-fit font-mono text-[11px] text-petrol hover:underline"
               >
                 ← simple flat monthly
@@ -829,6 +943,7 @@ function VectorDbSection({
                 onClick={() =>
                   setOverride({
                     vectorDb: {
+                      name: custom.name,
                       base: RATES.vectorDbs.pinecone.base,
                       perGB: RATES.vectorDbs.pinecone.perGB,
                       readsPerM: RATES.vectorDbs.pinecone.readsPerM,
@@ -855,9 +970,7 @@ function RerankingSection({
   onChange,
   overrides,
   setOverride,
-  clearOverrideKey,
-  onOpenExplore,
-}: CenterProps) {
+  clearOverrideKey,}: CenterProps) {
   const custom = overrides.reranker;
   const isGpu = custom?.gpuMonthly != null;
   return (
@@ -879,24 +992,33 @@ function RerankingSection({
           onChange({ reranker: v });
           if (overrides.reranker) clearOverrideKey('reranker');
         }}
-        onHelp={onOpenExplore}
         custom={{
           active: custom != null,
+          title: custom ? customModelName(custom) : undefined,
+          sub: custom ? 'custom' : undefined,
           onSelect: () => setOverride({ reranker: { per1k: RATES.rerankerPer1k } }),
         }}
       />
       {custom && (
         <CustomPanel onReset={() => clearOverrideKey('reranker')}>
-          <div className="mb-2 inline-flex overflow-hidden rounded-lg border border-borders">
+          <CustomNameField
+            value={custom.name ?? ''}
+            onChange={(name) => setOverride({ reranker: { ...custom, name } })}
+          />
+          <div className="mb-2 mt-3 inline-flex overflow-hidden rounded-lg border border-borders">
             <ModeBtn
               active={!isGpu}
               label="Per 1k searches"
-              onClick={() => setOverride({ reranker: { per1k: custom.per1k ?? RATES.rerankerPer1k } })}
+              onClick={() =>
+                setOverride({ reranker: { name: custom.name, per1k: custom.per1k ?? RATES.rerankerPer1k } })
+              }
             />
             <ModeBtn
               active={isGpu}
               label="Flat $/mo (GPU)"
-              onClick={() => setOverride({ reranker: { gpuMonthly: custom.gpuMonthly ?? 96 } })}
+              onClick={() =>
+                setOverride({ reranker: { name: custom.name, gpuMonthly: custom.gpuMonthly ?? 96 } })
+              }
             />
           </div>
           {isGpu ? (
@@ -904,7 +1026,7 @@ function RerankingSection({
               label="Reranker GPU $/mo"
               value={custom.gpuMonthly ?? 0}
               prefix="$"
-              onChange={(v) => setOverride({ reranker: { gpuMonthly: v } })}
+              onChange={(v) => setOverride({ reranker: { name: custom.name, gpuMonthly: v } })}
             />
           ) : (
             <div className="w-44">
@@ -912,7 +1034,7 @@ function RerankingSection({
                 label="$ / 1k searches"
                 value={custom.per1k ?? 0}
                 prefix="$"
-                onChange={(v) => setOverride({ reranker: { per1k: v } })}
+                onChange={(v) => setOverride({ reranker: { name: custom.name, per1k: v } })}
               />
             </div>
           )}
@@ -924,7 +1046,7 @@ function RerankingSection({
 
 // ---- Caching -----------------------------------------------------------
 
-function CachingSection({ inputs, onChange, onOpenExplore }: CenterProps) {
+function CachingSection({ inputs, onChange }: CenterProps) {
   return (
     <div className="flex flex-col gap-5">
       <TileGroup
@@ -936,9 +1058,7 @@ function CachingSection({ inputs, onChange, onOpenExplore }: CenterProps) {
           { value: '1hour', title: '1-hour', sub: 'write ×2', help: 'caching' },
         ]}
         columns={3}
-        onChange={(v) => onChange({ cacheTTL: v })}
-        onHelp={onOpenExplore}
-      />
+        onChange={(v) => onChange({ cacheTTL: v })}      />
       <TileGroup
         label="Cache hit rate"
         value={inputs.cacheHitRate}
@@ -953,7 +1073,7 @@ function CachingSection({ inputs, onChange, onOpenExplore }: CenterProps) {
       />
       {inputs.cacheTTL === 'off' && (
         <p className="font-mono text-[11px] text-ink/55">
-          Caching off — the hit-rate discount and write surcharge are both disabled.
+          Prompt caching off — the hit-rate discount and write surcharge are both disabled.
         </p>
       )}
     </div>
@@ -968,9 +1088,9 @@ function NetworkSection({
   overrides,
   setOverride,
   clearOverrideKey,
-  onOpenExplore,
 }: CenterProps) {
   const custom = overrides.cloud;
+  const [adv, setAdv] = useState(false);
   return (
     <div className="flex flex-col gap-5">
       <TileGroup
@@ -982,9 +1102,10 @@ function NetworkSection({
           onChange({ cloudProvider: v });
           if (overrides.cloud) clearOverrideKey('cloud');
         }}
-        onHelp={onOpenExplore}
         custom={{
           active: custom != null,
+          title: custom ? customModelName(custom) : undefined,
+          sub: custom ? 'custom' : undefined,
           onSelect: () => {
             const e = RATES.egress[inputs.cloudProvider];
             setOverride({ cloud: { perGB: e.perGB, freeGB: e.freeGB } });
@@ -993,6 +1114,12 @@ function NetworkSection({
       />
       {custom && (
         <CustomPanel onReset={() => clearOverrideKey('cloud')}>
+          <div className="mb-3">
+            <CustomNameField
+              value={custom.name ?? ''}
+              onChange={(name) => setOverride({ cloud: { ...custom, name } })}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <NumberField
               label="$/GB egress"
@@ -1010,53 +1137,76 @@ function NetworkSection({
         </CustomPanel>
       )}
 
-      <div className="flex flex-col gap-2">
-        <Toggle
-          label="Retrieved context crosses a network boundary"
-          checked={inputs.crossRegion}
-          onChange={(v) => onChange({ crossRegion: v })}
-          hint="adds retrieved-context bytes to egress"
-        />
-        <Toggle
-          label="NAT Gateway surcharge"
-          checked={inputs.natSurcharge}
-          onChange={(v) => onChange({ natSurcharge: v })}
-          hint={`+$${RATES.natPerGB}/GB on all egress`}
-        />
-        <Toggle
-          label="Cross-AZ traffic surcharge"
-          checked={inputs.crossAz}
-          onChange={(v) => onChange({ crossAz: v })}
-          hint={`+$${RATES.crossAzPerGB}/GB (both ways)`}
-        />
-      </div>
+      <AdvancedDisclosure open={adv} onToggle={() => setAdv((o) => !o)}>
+        <div className="flex flex-col gap-2">
+          <Toggle
+            label="Retrieved context crosses a network boundary"
+            checked={inputs.crossRegion}
+            onChange={(v) => onChange({ crossRegion: v })}
+            hint="adds retrieved-context bytes to egress"
+          />
+          <Toggle
+            label="NAT Gateway surcharge"
+            checked={inputs.natSurcharge}
+            onChange={(v) => onChange({ natSurcharge: v })}
+            hint={`+$${RATES.natPerGB}/GB on all egress`}
+          />
+          <Toggle
+            label="Cross-AZ traffic surcharge"
+            checked={inputs.crossAz}
+            onChange={(v) => onChange({ crossAz: v })}
+            hint={`+$${RATES.crossAzPerGB}/GB (both ways)`}
+          />
+        </div>
+      </AdvancedDisclosure>
     </div>
   );
 }
 
-// ---- Team & misc -------------------------------------------------------
+// ---- People, Tooling & Misc --------------------------------------------
 
 function TeamSection({ inputs, onChange, misc, onMiscChange, nextMiscId }: CenterProps) {
+  const [adv, setAdv] = useState(false);
   return (
     <div className="flex flex-col gap-5">
-      <StatCard>
-        <RangeSlider
-          label="Team size"
-          value={inputs.teamSize}
-          min={1}
-          max={8}
-          step={1}
-          format={(n) => `${n} engineer${n === 1 ? '' : 's'}`}
-          onChange={(v) => onChange({ teamSize: v })}
-        />
-      </StatCard>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <StatCard>
+          <RangeSlider
+            label="Team size"
+            value={inputs.teamSize}
+            min={0}
+            max={8}
+            step={1}
+            format={(n) => `${n} engineer${n === 1 ? '' : 's'}`}
+            onChange={(v) => onChange({ teamSize: v })}
+          />
+        </StatCard>
+        <StatCard>
+          <div className="flex flex-col gap-1">
+            <MoneyField
+              label="Loaded cost per engineer / month"
+              valueUsd={inputs.laborMonthly}
+              min={0}
+              step={500}
+              onChangeUsd={(usd) => onChange({ laborMonthly: Math.max(0, usd) })}
+            />
+            <p className="font-mono text-[10px] text-ink/50">
+              × team size × maintenance fraction = engineering labor.
+            </p>
+          </div>
+        </StatCard>
+      </div>
       <Toggle
         label="Budget observability & evals"
         checked={inputs.observability}
         onChange={(v) => onChange({ observability: v })}
         hint={`$${RATES.obsBase}/mo floor + 5% of inference`}
       />
-      <MiscEditor misc={misc} onChange={onMiscChange} nextId={nextMiscId} />
+
+      <AdvancedDisclosure open={adv} onToggle={() => setAdv((o) => !o)}>
+        <AiToolsEditor inputs={inputs} onChange={onChange} />
+        <MiscEditor misc={misc} onChange={onMiscChange} nextId={nextMiscId} />
+      </AdvancedDisclosure>
     </div>
   );
 }
@@ -1122,12 +1272,6 @@ function ModeBtn({
 // Rail summary / status helpers
 // ---------------------------------------------------------------------------
 
-function formatCostShort(n: number): string {
-  // Compact mono form for the mobile pinned bar.
-  if (n >= 1000) return `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return `$${Math.round(n)}`;
-}
-
 function docSizeText(inputs: Inputs): string {
   if (inputs.avgDocSizePages === 'custom') return `${inputs.avgDocSizePagesCustom ?? 10}pg`;
   return { short: '3pg', standard: '10pg', long: '40pg', report: '120pg' }[
@@ -1140,29 +1284,43 @@ function tokensText(inputs: Inputs): string {
   return { sparse: '300tok', standard: '500tok', dense: '650tok' }[inputs.tokensPerPage];
 }
 
-function sectionSummary(id: SectionId, inputs: Inputs): string {
+function sectionSummary(id: SectionId, inputs: Inputs, overrides: Overrides): string {
   switch (id) {
     case 'corpus':
       return `${formatNumber(inputs.documents)} docs · ${docSizeText(inputs)} · ${tokensText(inputs)}`;
     case 'traffic':
       return `${formatNumber(inputs.requestsPerMonth)}/mo · k=${inputs.topK}`;
     case 'generation':
-      return RATES.genModels[inputs.genModel].label;
+      return overrides.genModel
+        ? customModelName(overrides.genModel)
+        : RATES.genModels[inputs.genModel].label;
     case 'embedding':
-      return RATES.embedModels[inputs.embedModel].label;
+      return overrides.embedModel
+        ? customModelName(overrides.embedModel)
+        : RATES.embedModels[inputs.embedModel].label;
     case 'vectordb':
-      return RATES.vectorDbs[inputs.vectorDb].label;
+      return overrides.vectorDb
+        ? customModelName(overrides.vectorDb)
+        : RATES.vectorDbs[inputs.vectorDb].label;
     case 'reranking':
-      return inputs.reranker === 'none' ? 'No reranker' : 'Cohere rerank';
+      return overrides.reranker
+        ? customModelName(overrides.reranker)
+        : inputs.reranker === 'none'
+          ? 'No reranker'
+          : 'Cohere rerank';
     case 'caching': {
       const ttl = { off: 'Off', '5min': '5-min', '1hour': '1-hour' }[inputs.cacheTTL];
       const hit = Math.round(Number(inputs.cacheHitRate) * 100);
       return inputs.cacheTTL === 'off' ? 'Caching off' : `${ttl} · ${hit}% hit`;
     }
     case 'network':
-      return RATES.egress[inputs.cloudProvider].label;
+      return overrides.cloud
+        ? customModelName(overrides.cloud)
+        : RATES.egress[inputs.cloudProvider].label;
     case 'team':
-      return `${inputs.teamSize} eng${inputs.observability ? ' · obs' : ''}`;
+      return `${inputs.teamSize} engineer${inputs.teamSize === 1 ? '' : 's'}${
+        inputs.observability ? ' · obs' : ''
+      }`;
   }
 }
 

@@ -77,6 +77,10 @@ export function calculateCosts(
     reindexFreq,
     teamSize,
     observability,
+    laborMonthly,
+    aiToolsMode,
+    aiToolsFlatMonthly,
+    aiTools,
   } = inputs;
 
   const overrides = extras?.overrides ?? {};
@@ -275,7 +279,21 @@ export function calculateCosts(
   // 8. labor
   // ------------------------------------------------------------------
   const deployment = getDeployment(inputs);
-  const labor = teamSize * RATES.laborMonthly * RATES.maintFrac[deployment];
+  const laborRate = Math.max(0, Number.isFinite(laborMonthly) ? laborMonthly : RATES.laborMonthly);
+  const labor = teamSize * laborRate * RATES.maintFrac[deployment];
+
+  // ------------------------------------------------------------------
+  // 9. AI / build tooling (optional; vibe-coding seat costs)
+  // ------------------------------------------------------------------
+  const aiToolsMonthly =
+    aiToolsMode === 'flat'
+      ? Math.max(0, Number.isFinite(aiToolsFlatMonthly) ? aiToolsFlatMonthly : 0)
+      : Object.values(aiTools).reduce((s, line) => {
+          if (!line) return s;
+          const perSeat = Math.max(0, Number.isFinite(line.perSeat) ? line.perSeat : 0);
+          const seats = Math.max(0, Number.isFinite(line.seats) ? line.seats : 0);
+          return s + perSeat * seats;
+        }, 0);
 
   // ------------------------------------------------------------------
   // Misc line items + per-bucket flat overrides.
@@ -297,6 +315,7 @@ export function calculateCosts(
     obs,
     network,
     labor,
+    aiTools: aiToolsMonthly,
   };
   const bucketPins = overrides.buckets ?? {};
   (Object.keys(bucketPins) as BucketKey[]).forEach((k) => {
@@ -322,6 +341,7 @@ export function calculateCosts(
     obs: computed.obs,
     network: computed.network,
     labor: computed.labor,
+    aiTools: computed.aiTools,
     miscMonthly,
     miscOneTime,
     total,

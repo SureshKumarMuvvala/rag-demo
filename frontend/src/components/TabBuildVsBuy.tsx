@@ -1,5 +1,6 @@
 import type { CostBreakdown, Inputs } from '../lib/types';
-import { calculateCosts, formatCurrency } from '../lib/costs';
+import { calculateCosts } from '../lib/costs';
+import { useMoney } from '../lib/currency';
 
 interface TabBuildVsBuyProps {
   inputs: Inputs;
@@ -74,6 +75,7 @@ const SCENARIOS: ScenarioMeta[] = [
  * one-sentence reason, and shows the annualised delta.
  */
 export default function TabBuildVsBuy({ inputs }: TabBuildVsBuyProps) {
+  const formatCurrency = useMoney();
   const managed = calculateCosts({
     ...inputs,
     genModel: 'gpt-5.4',
@@ -162,6 +164,7 @@ function ScenarioCard({
   costs: CostBreakdown;
   cheaper: boolean;
 }) {
+  const formatCurrency = useMoney();
   return (
     <div
       className={[

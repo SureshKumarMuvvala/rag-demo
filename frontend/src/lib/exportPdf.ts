@@ -4,7 +4,8 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { ProposalModel } from './proposal';
-import { PRICES_AS_OF, fmtPct, fmtUSD } from './proposal';
+import { PRICES_AS_OF, fmtPct, fmtMoney } from './proposal';
+import { CONVERSION_STAMP } from './currency';
 
 // Brand tokens as RGB tuples.
 const INK: [number, number, number] = [21, 36, 43];
@@ -74,6 +75,8 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const contentTop = BAND_H + 26;
+  const cur = model.meta.displayCurrency;
+  const money = (n: number) => fmtMoney(n, cur);
 
   drawChrome(doc, pageW);
 
@@ -98,11 +101,17 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
   doc.setFontSize(8);
   doc.setTextColor(...AMBER);
   doc.text(
-    `Prices as of ${PRICES_AS_OF} · illustrative estimate (${model.meta.currency})`,
+    `Prices as of ${PRICES_AS_OF} · illustrative estimate (${cur})`,
     MARGIN,
     y,
   );
-  y += 20;
+  y += 11;
+  if (cur === 'INR') {
+    doc.setTextColor(...SOFT);
+    doc.text(CONVERSION_STAMP, MARGIN, y);
+    y += 11;
+  }
+  y += 9;
 
   // ---- Executive summary ----------------------------------------------
   doc.setFont('helvetica', 'bold');
@@ -112,9 +121,9 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
   y += 16;
 
   const cols: { label: string; value: string }[] = [
-    { label: 'Monthly', value: fmtUSD(model.costs.total) },
-    { label: 'Annual (×12)', value: fmtUSD(model.costs.annual) },
-    { label: 'One-time setup', value: fmtUSD(model.costs.setup) },
+    { label: 'Monthly', value: money(model.costs.total) },
+    { label: 'Annual (×12)', value: money(model.costs.annual) },
+    { label: 'One-time setup', value: money(model.costs.setup) },
   ];
   const colW = (pageW - 2 * MARGIN) / 3;
   cols.forEach((c, i) => {
@@ -148,8 +157,8 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
   if (model.meta.includeBreakdown) {
     const body = model.breakdown.map((r) => [
       r.label + (r.custom ? '  (custom)' : ''),
-      fmtUSD(r.monthly),
-      fmtUSD(r.annual),
+      money(r.monthly),
+      money(r.annual),
       fmtPct(r.pct),
     ]);
     model.misc.forEach((m) => {
@@ -157,8 +166,8 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
       const annual = m.monthly * 12;
       body.push([
         `Misc: ${m.label}${m.oneTime ? ' (one-time)' : ''}`,
-        m.oneTime ? fmtUSD(m.oneTime) : fmtUSD(monthly),
-        m.oneTime ? '—' : fmtUSD(annual),
+        m.oneTime ? money(m.oneTime) : money(monthly),
+        m.oneTime ? '—' : money(annual),
         '',
       ]);
     });
@@ -166,13 +175,13 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
     autoTable(doc, {
       ...tableCommon,
       startY: y,
-      head: [['Cost bucket', '$/mo', '$/yr', '% of total']],
+      head: [['Cost bucket', `${cur}/mo`, `${cur}/yr`, '% of total']],
       body,
       foot: [
         [
           'Total (monthly recurring)',
-          fmtUSD(model.costs.total),
-          fmtUSD(model.costs.annual),
+          money(model.costs.total),
+          money(model.costs.annual),
           '100%',
         ],
       ],
@@ -227,17 +236,17 @@ export function buildProposalPdf(model: ProposalModel): jsPDF {
     autoTable(doc, {
       ...tableCommon,
       startY: y,
-      head: [['Build vs. Buy scenario', '$/mo', '$/yr']],
+      head: [['Build vs. Buy scenario', `${cur}/mo`, `${cur}/yr`]],
       body: [
         [
           'Managed (GPT-5.4 + Pinecone)',
-          fmtUSD(model.buildVsBuy.managed),
-          fmtUSD(model.buildVsBuy.managed * 12),
+          money(model.buildVsBuy.managed),
+          money(model.buildVsBuy.managed * 12),
         ],
         [
           'Self-hosted (open-weight GPU + self-host)',
-          fmtUSD(model.buildVsBuy.selfhosted),
-          fmtUSD(model.buildVsBuy.selfhosted * 12),
+          money(model.buildVsBuy.selfhosted),
+          money(model.buildVsBuy.selfhosted * 12),
         ],
       ],
       columnStyles: {

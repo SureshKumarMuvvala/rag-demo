@@ -21,7 +21,7 @@ export default function Hero() {
       <div className="flex flex-wrap items-end justify-center gap-x-4 gap-y-1.5">
         <Logo variant="horizontal" theme="light" markSize={46} />
 
-        <div
+        {/* <div
           className="flex items-center gap-x-1.5 pb-1 font-mono text-sm"
           aria-label="Explore, then Estimate, then Propose"
         >
@@ -41,7 +41,7 @@ export default function Hero() {
               )}
             </span>
           ))}
-        </div>
+        </div> */}
       </div>
 
       {/* LINE 3 — one sentence; gently scrolls left↔right (ping-pong marquee).
@@ -49,7 +49,7 @@ export default function Hero() {
       <p className="mt-3 max-w-full whitespace-nowrap font-body text-sm text-ink/70">
         <span className="hero-marquee">
           An interactive{' '}
-          <span className="rag-shimmer text-[1.5em] font-bold">estimator</span> for building a
+          <span className="rag-shimmer text-[1.5em] font-bold">Planner</span> for your
           production <span className="rag-shimmer rag-shimmer--offset text-[1.5em] font-bold">RAG</span>{' '}
           system
         </span>

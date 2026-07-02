@@ -9,6 +9,10 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "gpt-tokenizer": ["src/shims/gpt-tokenizer"]
+    },
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",

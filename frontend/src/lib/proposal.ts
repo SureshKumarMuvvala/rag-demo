@@ -3,9 +3,12 @@
 // the PDF export, and the Excel export — so every surface shows the same numbers.
 
 import type { BucketKey, CostBreakdown, Inputs, MiscItem, Overrides } from './types';
-import { calculateCosts, formatCurrency, formatNumber } from './costs';
+import { calculateCosts, formatNumber } from './costs';
 import { RATES } from './rates';
 import { CONTENT } from './exploreContent';
+import { CONVERSION_STAMP, formatMoney } from './currency';
+import type { Currency } from './currency';
+import { aiToolsEdited, customModelName } from './labels';
 
 /** Rate-snapshot label shown across the app and in exports. */
 export const PRICES_AS_OF = 'June 2026';
@@ -19,7 +22,8 @@ export interface ProposalMeta {
   preparedFor: string;
   preparedBy: string;
   date: string; // YYYY-MM-DD
-  currency: string;
+  /** Display currency for all computed money on this proposal (from shared state). */
+  displayCurrency: Currency;
   notes: string;
   includeBuildVsBuy: boolean;
   includeAssumptions: boolean;
@@ -33,7 +37,7 @@ export function defaultProposalMeta(today: string): ProposalMeta {
     preparedFor: '',
     preparedBy: '',
     date: today,
-    currency: 'USD',
+    displayCurrency: 'INR',
     notes: '',
     includeBuildVsBuy: true,
     includeAssumptions: true,
@@ -56,6 +60,7 @@ export const PROPOSAL_BUCKETS: { key: BucketKey; label: string }[] = [
   { key: 'obs', label: 'Observability' },
   { key: 'network', label: 'Network / egress' },
   { key: 'labor', label: 'Engineering labor' },
+  { key: 'aiTools', label: 'AI / build tooling' },
 ];
 
 /** Override key that marks each bucket's rate as hand-set (if any). */
@@ -122,8 +127,9 @@ export interface ProposalModel {
 // Formatting helpers (full-precision USD for tables)
 // ---------------------------------------------------------------------------
 
-export function fmtUSD(n: number): string {
-  return `$${Math.round(n).toLocaleString('en-US')}`;
+/** Currency-aware money formatter used by the preview and exports. */
+export function fmtMoney(n: number, currency: Currency): string {
+  return formatMoney(n, currency);
 }
 
 export function fmtPct(n: number): string {
@@ -137,8 +143,9 @@ export function fmtPct(n: number): string {
 function genValue(inputs: Inputs, overrides: Overrides): string {
   const o = overrides.genModel;
   if (o) {
-    if (o.gpuMonthly != null) return `Custom · $${o.gpuMonthly}/mo (flat)`;
-    return `Custom · $${o.in ?? 0}/1M in · $${o.out ?? 0}/1M out`;
+    const n = customModelName(o);
+    if (o.gpuMonthly != null) return `${n} (custom) · $${o.gpuMonthly}/mo (flat)`;
+    return `${n} (custom) · $${o.in ?? 0}/1M in · $${o.out ?? 0}/1M out`;
   }
   const m = RATES.genModels[inputs.genModel];
   const rate = 'gpuStep' in m ? 'self-host GPU' : `$${m.in}/1M in · $${m.out}/1M out`;
@@ -147,7 +154,7 @@ function genValue(inputs: Inputs, overrides: Overrides): string {
 
 function embedValue(inputs: Inputs, overrides: Overrides): string {
   const o = overrides.embedModel;
-  if (o) return `Custom · $${o.perM}/1M · ${o.dim}d`;
+  if (o) return `${customModelName(o)} (custom) · $${o.perM}/1M · ${o.dim}d`;
   const m = RATES.embedModels[inputs.embedModel];
   return `${m.label} · $${m.perM}/1M · ${m.dim}d`;
 }
@@ -155,8 +162,9 @@ function embedValue(inputs: Inputs, overrides: Overrides): string {
 function vectorValue(inputs: Inputs, overrides: Overrides): string {
   const o = overrides.vectorDb;
   if (o) {
-    if (o.flatMonthly != null) return `Custom · $${o.flatMonthly}/mo (flat)`;
-    return `Custom · base $${o.base ?? 0} + $${o.perGB ?? 0}/GB`;
+    const n = customModelName(o);
+    if (o.flatMonthly != null) return `${n} (custom) · $${o.flatMonthly}/mo (flat)`;
+    return `${n} (custom) · base $${o.base ?? 0} + $${o.perGB ?? 0}/GB`;
   }
   return RATES.vectorDbs[inputs.vectorDb].label;
 }
@@ -164,8 +172,9 @@ function vectorValue(inputs: Inputs, overrides: Overrides): string {
 function rerankerValue(inputs: Inputs, overrides: Overrides): string {
   const o = overrides.reranker;
   if (o) {
-    if (o.gpuMonthly != null) return `Custom · $${o.gpuMonthly}/mo (GPU)`;
-    return `Custom · $${o.per1k}/1k searches`;
+    const n = customModelName(o);
+    if (o.gpuMonthly != null) return `${n} (custom) · $${o.gpuMonthly}/mo (GPU)`;
+    return `${n} (custom) · $${o.per1k}/1k searches`;
   }
   return inputs.reranker === 'none'
     ? 'None'
@@ -174,7 +183,7 @@ function rerankerValue(inputs: Inputs, overrides: Overrides): string {
 
 function cloudValue(inputs: Inputs, overrides: Overrides): string {
   const o = overrides.cloud;
-  if (o) return `Custom · $${o.perGB}/GB · ${formatNumber(o.freeGB)}GB free`;
+  if (o) return `${customModelName(o)} (custom) · $${o.perGB}/GB · ${formatNumber(o.freeGB)}GB free`;
   const e = RATES.egress[inputs.cloudProvider];
   const free = e.freeGB ? `${formatNumber(e.freeGB)}GB free` : 'no free tier';
   return `${e.label} · $${e.perGB}/GB · ${free}`;
@@ -202,14 +211,26 @@ function cachingValue(inputs: Inputs): string {
   return `${ttl} · ${Math.round(Number(inputs.cacheHitRate) * 100)}% hit`;
 }
 
-function buildConfig(inputs: Inputs, overrides: Overrides): ConfigRow[] {
+function aiToolsValue(inputs: Inputs, cur: Currency, aiToolsMonthly: number): string {
+  if (aiToolsMonthly <= 0) return 'None';
+  if (inputs.aiToolsMode === 'flat') return `Flat ${fmtMoney(aiToolsMonthly, cur)}/mo`;
+  const n = Object.values(inputs.aiTools).filter(Boolean).length;
+  return `${n} tool${n === 1 ? '' : 's'} · ${fmtMoney(aiToolsMonthly, cur)}/mo`;
+}
+
+function buildConfig(
+  inputs: Inputs,
+  overrides: Overrides,
+  cur: Currency,
+  aiToolsMonthly: number,
+): ConfigRow[] {
   return [
     { label: 'Generation model', value: genValue(inputs, overrides), custom: overrides.genModel != null },
     { label: 'Embedding model', value: embedValue(inputs, overrides), custom: overrides.embedModel != null },
     { label: 'Vector database', value: vectorValue(inputs, overrides), custom: overrides.vectorDb != null },
     { label: 'Reranker', value: rerankerValue(inputs, overrides), custom: overrides.reranker != null },
     { label: 'Cloud / egress', value: cloudValue(inputs, overrides), custom: overrides.cloud != null },
-    { label: 'Caching', value: cachingValue(inputs), custom: false },
+    { label: 'Prompt caching', value: cachingValue(inputs), custom: false },
     { label: 'Documents', value: formatNumber(inputs.documents), custom: false },
     { label: 'Avg document size', value: docSizeValue(inputs), custom: inputs.avgDocSizePages === 'custom' },
     { label: 'Tokens / page', value: tokensValue(inputs), custom: inputs.tokensPerPage === 'custom' },
@@ -225,6 +246,16 @@ function buildConfig(inputs: Inputs, overrides: Overrides): ConfigRow[] {
       label: 'Team size',
       value: `${inputs.teamSize} engineer${inputs.teamSize === 1 ? '' : 's'}`,
       custom: false,
+    },
+    {
+      label: 'Loaded cost / engineer',
+      value: `${fmtMoney(inputs.laborMonthly, cur)} / mo`,
+      custom: inputs.laborMonthly !== 14_000,
+    },
+    {
+      label: 'AI / build tooling',
+      value: aiToolsValue(inputs, cur, aiToolsMonthly),
+      custom: aiToolsEdited(inputs),
     },
   ];
 }
@@ -274,7 +305,10 @@ export function buildProposalModel(
     monthly: costs[b.key],
     annual: costs[b.key] * 12,
     pct: (costs[b.key] / total) * 100,
-    custom: bucketIsCustom(b.key, overrides),
+    custom:
+      b.key === 'aiTools'
+        ? bucketIsCustom(b.key, overrides) || aiToolsEdited(inputs)
+        : bucketIsCustom(b.key, overrides),
   }));
 
   const miscRows: MiscRow[] = misc.map((m) => ({
@@ -286,8 +320,9 @@ export function buildProposalModel(
   const belowWaterlinePct =
     costs.total > 0 ? ((costs.total - costs.inference) / costs.total) * 100 : 0;
 
+  const cur = meta.displayCurrency;
   const execSummary =
-    `Estimated at ~${formatCurrency(costs.total)}/mo (${formatCurrency(costs.annual)}/yr) ` +
+    `Estimated at ~${fmtMoney(costs.total, cur)}/mo (${fmtMoney(costs.annual, cur)}/yr) ` +
     `at ${formatNumber(inputs.requestsPerMonth)}/mo over ${formatNumber(inputs.documents)} docs.`;
 
   const managed = calculateCosts({ ...inputs, genModel: 'gpt-5.4', vectorDb: 'pinecone' });
@@ -304,7 +339,7 @@ export function buildProposalModel(
     misc: miscRows,
     belowWaterlinePct,
     execSummary,
-    config: buildConfig(inputs, overrides),
+    config: buildConfig(inputs, overrides, meta.displayCurrency, costs.aiTools),
     buildVsBuy: { managed: managed.total, selfhosted: selfhosted.total },
     sources: buildSources(),
     caveat: PROPOSAL_CAVEAT,
@@ -318,26 +353,29 @@ export function buildProposalModel(
 
 export function proposalPlainText(model: ProposalModel): string {
   const { meta, costs, breakdown, misc } = model;
+  const cur = meta.displayCurrency;
+  const money = (n: number) => fmtMoney(n, cur);
   const lines: string[] = [];
   lines.push(meta.proposalTitle);
   if (meta.preparedFor) lines.push(`Prepared for: ${meta.preparedFor}`);
   if (meta.preparedBy) lines.push(`Prepared by: ${meta.preparedBy}`);
   lines.push(`Date: ${meta.date} · Prices as of ${PRICES_AS_OF} (illustrative)`);
+  if (cur === 'INR') lines.push(CONVERSION_STAMP);
   lines.push('');
   lines.push(model.execSummary);
   lines.push(
-    `Monthly: ${fmtUSD(costs.total)}  |  Annual: ${fmtUSD(costs.annual)}  |  One-time setup: ${fmtUSD(costs.setup)}`,
+    `Monthly: ${money(costs.total)}  |  Annual: ${money(costs.annual)}  |  One-time setup: ${money(costs.setup)}`,
   );
   lines.push('');
-  lines.push('COST BREAKDOWN (per month)');
+  lines.push(`COST BREAKDOWN (per month · ${cur})`);
   for (const r of breakdown) {
     const tag = r.custom ? ' [custom]' : '';
-    lines.push(`  ${r.label.padEnd(30)} ${fmtUSD(r.monthly).padStart(12)}  ${fmtPct(r.pct).padStart(6)}${tag}`);
+    lines.push(`  ${r.label.padEnd(30)} ${money(r.monthly).padStart(12)}  ${fmtPct(r.pct).padStart(6)}${tag}`);
   }
   for (const m of misc) {
     const amt = m.monthly || m.oneTime;
     const cad = m.oneTime ? 'one-time' : '/mo';
-    lines.push(`  ${('misc: ' + m.label).padEnd(30)} ${fmtUSD(amt).padStart(12)}  ${cad}`);
+    lines.push(`  ${('misc: ' + m.label).padEnd(30)} ${money(amt).padStart(12)}  ${cad}`);
   }
   lines.push('');
   lines.push(

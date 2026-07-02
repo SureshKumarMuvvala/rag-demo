@@ -11,8 +11,9 @@ import {
   YAxis,
 } from 'recharts';
 import type { CostBreakdown, Inputs } from '../lib/types';
-import { calculateCosts, formatCurrency, formatNumber } from '../lib/costs';
+import { calculateCosts, formatNumber } from '../lib/costs';
 import { findBreakeven, generateScalePoints } from '../lib/scale';
+import { currencySymbol, useCurrency, useMoney } from '../lib/currency';
 import LogSlider from './LogSlider';
 
 interface TabScaleProps {
@@ -56,6 +57,8 @@ const MONO = "'IBM Plex Mono', ui-monospace, monospace";
  * two colored dots (one on each line).
  */
 export default function TabScale({ inputs, onQueryChange }: TabScaleProps) {
+  const { currency } = useCurrency();
+  const formatCurrency = useMoney();
   const points = useMemo(
     () => generateScalePoints(inputs),
     [inputs],
@@ -130,7 +133,7 @@ export default function TabScale({ inputs, onQueryChange }: TabScaleProps) {
                 tick={{ fill: '#15242B', fontFamily: MONO, fontSize: 11 }}
                 width={72}
                 label={{
-                  value: '$ / month',
+                  value: `${currencySymbol(currency)} / month`,
                   angle: -90,
                   position: 'insideLeft',
                   fill: '#15242B',

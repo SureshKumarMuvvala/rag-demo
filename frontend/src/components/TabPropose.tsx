@@ -4,10 +4,11 @@ import {
   PRICES_AS_OF,
   buildProposalModel,
   fmtPct,
-  fmtUSD,
+  fmtMoney,
   proposalPlainText,
 } from '../lib/proposal';
 import type { ProposalMeta } from '../lib/proposal';
+import { CONVERSION_STAMP } from '../lib/currency';
 import { exportProposalPdf } from '../lib/exportPdf';
 import { exportProposalXlsx } from '../lib/exportXlsx';
 import Logo from './Logo';
@@ -99,13 +100,18 @@ export default function TabPropose({
                   className={inputCls}
                 />
               </Field>
-              <Field label="Currency label">
-                <input
-                  type="text"
-                  value={meta.currency}
-                  onChange={(e) => onMetaChange({ currency: e.target.value })}
-                  className={inputCls}
-                />
+              <Field label="Currency">
+                <div className="flex flex-col gap-1 rounded-lg border border-borders bg-tinted-surface/40 px-2.5 py-1.5">
+                  <span className="font-mono text-[13px] font-medium text-ink">
+                    {meta.displayCurrency}
+                  </span>
+                  {meta.displayCurrency === 'INR' && (
+                    <span className="font-mono text-[9px] text-ink/55">{CONVERSION_STAMP}</span>
+                  )}
+                  <span className="font-mono text-[9px] text-ink/45">
+                    set via the toggle on the Estimate tab
+                  </span>
+                </div>
               </Field>
             </div>
             <Field label="Notes / assumptions">
@@ -191,6 +197,8 @@ export default function TabPropose({
 
 function ProposalPreview({ model }: { model: ReturnType<typeof buildProposalModel> }) {
   const { meta, costs } = model;
+  const cur = meta.displayCurrency;
+  const money = (n: number) => fmtMoney(n, cur);
   return (
     <article className="overflow-hidden rounded-2xl border border-borders bg-surfaces shadow-card">
       {/* 1. Header band */}
@@ -220,11 +228,14 @@ function ProposalPreview({ model }: { model: ReturnType<typeof buildProposalMode
             Executive summary
           </h3>
           <div className="mt-2 grid grid-cols-3 gap-3">
-            <BigStat label="Monthly" value={fmtUSD(costs.total)} />
-            <BigStat label="Annual (×12)" value={fmtUSD(costs.annual)} />
-            <BigStat label="One-time setup" value={fmtUSD(costs.setup)} />
+            <BigStat label="Monthly" value={money(costs.total)} />
+            <BigStat label="Annual (×12)" value={money(costs.annual)} />
+            <BigStat label="One-time setup" value={money(costs.setup)} />
           </div>
           <p className="mt-3 font-body text-sm text-ink/75">{model.execSummary}</p>
+          {cur === 'INR' && (
+            <p className="mt-1 font-mono text-[10px] text-ink/50">{CONVERSION_STAMP}</p>
+          )}
         </section>
 
         {/* 3. Cost breakdown */}
@@ -234,22 +245,22 @@ function ProposalPreview({ model }: { model: ReturnType<typeof buildProposalMode
               Cost breakdown
             </h3>
             <PreviewTable
-              head={['Cost bucket', '$/mo', '$/yr', '% of total']}
+              head={['Cost bucket', `${cur}/mo`, `${cur}/yr`, '% of total']}
               rows={[
                 ...model.breakdown.map((r) => [
                   r.label + (r.custom ? '  ·custom' : ''),
-                  fmtUSD(r.monthly),
-                  fmtUSD(r.annual),
+                  money(r.monthly),
+                  money(r.annual),
                   fmtPct(r.pct),
                 ]),
                 ...model.misc.map((m) => [
                   `Misc: ${m.label}${m.oneTime ? ' (one-time)' : ''}`,
-                  m.oneTime ? fmtUSD(m.oneTime) : fmtUSD(m.monthly),
-                  m.oneTime ? '—' : fmtUSD(m.monthly * 12),
+                  m.oneTime ? money(m.oneTime) : money(m.monthly),
+                  m.oneTime ? '—' : money(m.monthly * 12),
                   '',
                 ]),
               ]}
-              foot={['Total (monthly)', fmtUSD(costs.total), fmtUSD(costs.annual), '100%']}
+              foot={['Total (monthly)', money(costs.total), money(costs.annual), '100%']}
               numCols={[1, 2, 3]}
             />
             <p className="mt-2 font-mono text-[11px] text-amber">
@@ -285,17 +296,17 @@ function ProposalPreview({ model }: { model: ReturnType<typeof buildProposalMode
               Build vs. Buy
             </h3>
             <PreviewTable
-              head={['Scenario', '$/mo', '$/yr']}
+              head={['Scenario', `${cur}/mo`, `${cur}/yr`]}
               rows={[
                 [
                   'Managed (GPT-5.4 + Pinecone)',
-                  fmtUSD(model.buildVsBuy.managed),
-                  fmtUSD(model.buildVsBuy.managed * 12),
+                  money(model.buildVsBuy.managed),
+                  money(model.buildVsBuy.managed * 12),
                 ],
                 [
                   'Self-hosted (open-weight GPU + self-host)',
-                  fmtUSD(model.buildVsBuy.selfhosted),
-                  fmtUSD(model.buildVsBuy.selfhosted * 12),
+                  money(model.buildVsBuy.selfhosted),
+                  money(model.buildVsBuy.selfhosted * 12),
                 ],
               ]}
               numCols={[1, 2]}

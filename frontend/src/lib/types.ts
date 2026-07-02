@@ -18,6 +18,26 @@ export type ReindexKey = '0' | '0.08' | '0.30';
 export type RerankerKey = 'none' | 'cohere';
 export type RerankPoolKey = '25' | '50' | '100';
 
+/** AI / build-tooling seat products (illustrative per-seat prices in RATES). */
+export type AiToolKey =
+  | 'claude-code'
+  | 'cursor'
+  | 'cursor-prem'
+  | 'copilot-biz'
+  | 'copilot-ent'
+  | 'windsurf'
+  | 'v0'
+  | 'other';
+
+/** A selected AI tool line: per-seat USD (editable) × number of seats. */
+export interface AiToolLine {
+  /** USD per seat / month (defaults from RATES; editable). */
+  perSeat: number;
+  seats: number;
+}
+
+export type AiToolsMode = 'byTool' | 'flat';
+
 export type GenModelKey =
   | 'gpt-5.5'
   | 'gpt-5.4'
@@ -125,6 +145,16 @@ export interface Inputs {
   teamSize: number;
   /** Whether an observability/evals line is budgeted. */
   observability: boolean;
+  /** Fully-loaded monthly cost per engineer (USD; editable in the UI). */
+  laborMonthly: number;
+
+  // AI / build tooling (optional; vibe-coding seat costs)
+  /** Whether AI-tooling cost is entered per tool or as a flat amount. */
+  aiToolsMode: AiToolsMode;
+  /** Flat AI-tooling cost per month (USD) when aiToolsMode === 'flat'. */
+  aiToolsFlatMonthly: number;
+  /** Selected AI tools with per-seat USD + seats (byTool mode). */
+  aiTools: Partial<Record<AiToolKey, AiToolLine>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,9 +172,16 @@ export type BucketKey =
   | 'infra'
   | 'obs'
   | 'network'
-  | 'labor';
+  | 'labor'
+  | 'aiTools';
 
-export interface GenOverride {
+/** User-supplied name for a custom ("Bring Your Model") choice. */
+export interface CustomNamed {
+  /** Display name; falls back to "Bring Your Model" when blank. */
+  name?: string;
+}
+
+export interface GenOverride extends CustomNamed {
   /** $/1M input tokens. */
   in?: number;
   /** $/1M output tokens. */
@@ -153,14 +190,14 @@ export interface GenOverride {
   gpuMonthly?: number;
 }
 
-export interface EmbedOverride {
+export interface EmbedOverride extends CustomNamed {
   /** $/1M input tokens. */
   perM: number;
   /** Vector dimensionality. */
   dim: number;
 }
 
-export interface VectorOverride {
+export interface VectorOverride extends CustomNamed {
   /** Simple flat $/mo for the whole vector bucket. */
   flatMonthly?: number;
   /** Advanced: monthly base fee. */
@@ -173,14 +210,14 @@ export interface VectorOverride {
   writesPerM?: number;
 }
 
-export interface RerankOverride {
+export interface RerankOverride extends CustomNamed {
   /** $ per 1k searches. */
   per1k?: number;
   /** Flat $/mo (self-host GPU). */
   gpuMonthly?: number;
 }
 
-export interface CloudOverride {
+export interface CloudOverride extends CustomNamed {
   /** $/GB egress. */
   perGB: number;
   /** Free monthly GB allowance. */
@@ -241,6 +278,8 @@ export interface CostBreakdown {
   obs: number;
   network: number;
   labor: number;
+  /** AI / build tooling (vibe-coding seat costs); 0 when none. */
+  aiTools: number;
   /** Sum of monthly misc line items (0 when none). */
   miscMonthly: number;
   /** Sum of one-time misc line items (already folded into `setup`). */
@@ -285,6 +324,10 @@ export const DEFAULT_INPUTS: Inputs = {
   natSurcharge: false,
   crossAz: false,
   reindexFreq: '0.08',
-  teamSize: 2,
+  teamSize: 0,
   observability: true,
+  laborMonthly: 14_000,
+  aiToolsMode: 'byTool',
+  aiToolsFlatMonthly: 0,
+  aiTools: {},
 };

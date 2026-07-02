@@ -93,6 +93,20 @@ export const RATES = {
   obsBase: 120,
   /** Months over which one-time setup (ingestion + embedding) is amortized. */
   amortMonths: 12,
+
+  // ---- AI / build tooling (vibe-coding) ----------------------------------
+  // Illustrative per-seat USD / month, verified ~June 2026; editable in the UI.
+  // Usage-based plans may exceed the seat price.
+  aiTools: {
+    'claude-code':  { label: 'Claude Code (Teams)',        perSeat: 25  },
+    'cursor':       { label: 'Cursor (Teams Standard)',    perSeat: 40  },
+    'cursor-prem':  { label: 'Cursor (Teams Premium)',     perSeat: 120 },
+    'copilot-biz':  { label: 'GitHub Copilot (Business)',  perSeat: 19  },
+    'copilot-ent':  { label: 'GitHub Copilot (Enterprise)', perSeat: 39 },
+    'windsurf':     { label: 'Windsurf / Devin Desktop',   perSeat: 20  },
+    'v0':           { label: 'v0 / Vercel',                perSeat: 20  },
+    'other':        { label: 'Other (custom)',             perSeat: 20  },
+  } as const,
 } as const;
 
 // ---------------------------------------------------------------------------
