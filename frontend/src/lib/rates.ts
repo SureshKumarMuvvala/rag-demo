@@ -38,7 +38,7 @@ export const RATES = {
     'te3-large': { label: 'OpenAI text-embedding-3-large', perM: 0.13,    dim: 3072 },
     'cohere-v4': { label: 'Cohere embed-v4',               perM: 0.12,    dim: 1536 },
     'voyage-4':  { label: 'Voyage-4',                      perM: 0.06,    dim: 1024 },
-    'google-005':{ label: 'Google text-embedding-005',     perM: 0.00625, dim: 768  },
+    'google-005':{ label: 'Google text-embedding-005',     perM: 0.10,    dim: 768  },
     'bge-m3':    { label: 'Self-hosted BGE-M3 (GPU)',      perM: 0.001,   dim: 1024 },
   } as const,
 
@@ -50,8 +50,8 @@ export const RATES = {
   // managed: true = hosted SaaS, false = self-hosted node.
   // Schema per spec; not every DB exposes every field.
   vectorDbs: {
-    'pinecone':   { label: 'Pinecone Serverless (managed)', base: 50, perGB: 0.33, readsPerM: 16, writesPerM: 2, managed: true  },
-    'weaviate':   { label: 'Weaviate Cloud Flex (managed)', base: 45, perMdim: 0.095, managed: true },
+    'pinecone':   { label: 'Pinecone Serverless (managed)', base: 50, perGB: 0.33, readsPerM: 16, writesPerM: 4, managed: true  },
+    'weaviate':   { label: 'Weaviate Cloud Flex (managed)', base: 45, perMdim: 0.00465, managed: true },
     'qdrant-cloud':{label: 'Qdrant Cloud (managed)',        base: 65, perGB: 0, readsPerM: 0, writesPerM: 0, managed: true },
     'pgvector-rds':{label: 'AWS RDS pgvector (t4g.medium)', base: 30, perGB: 0, managed: true },
     'selfhost':   { label: 'Self-hosted Qdrant/Weaviate (VPS)', nodeGBcap: 18, nodeCost: 96, managed: false },

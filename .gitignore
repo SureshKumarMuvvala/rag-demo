@@ -49,6 +49,9 @@ logs/
 # ── Kimchi workspace ──────────────────────────────────────────────────────────
 .kimchi/
 
+# ── Presentation / deck / video (local deliverables, not committed) ───────────
+presentation/
+
 # ── Other ──────────────────────────────────────────────────────────────────────
 .cursor/
 Prompts/
