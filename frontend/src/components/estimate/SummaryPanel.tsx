@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BucketKey, CostBreakdown, CustomNamed, MiscItem, Overrides } from '../../lib/types';
 import Waterline from '../Waterline';
 import { CustomBadge } from './primitives';
-import { CONVERSION_STAMP, useCurrency, useMoney } from '../../lib/currency';
+import { currencySymbol, useCurrency, useMoney } from '../../lib/currency';
 import type { Currency } from '../../lib/currency';
 import { customModelName } from '../../lib/labels';
 
@@ -73,7 +73,7 @@ export default function SummaryPanel({
         <div className="mt-0.5 font-mono text-xs uppercase tracking-wider text-ink/60">
           {formatCurrency(costs.setup)} one-time setup
         </div>
-        <div className="mt-1 font-mono text-[10px] text-ink/45">{CONVERSION_STAMP}</div>
+        <RateStamp />
       </div>
 
       <ul className="flex flex-col" aria-label="Cost breakdown by category">
@@ -277,6 +277,43 @@ function CurrencyToggle({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/** Editable USD→INR rate stamp shown under the totals. */
+function RateStamp() {
+  const { rate, setRate } = useCurrency();
+  const [text, setText] = useState(String(rate));
+
+  // Re-sync the field if the rate changes elsewhere (e.g. a future reset).
+  useEffect(() => {
+    setText(String(rate));
+  }, [rate]);
+
+  return (
+    <div className="mt-1 flex items-center gap-1 font-mono text-[10px] text-ink/45">
+      <label className="flex items-center gap-1">
+        <span>1 USD = {currencySymbol('INR')}</span>
+        <input
+          type="number"
+          min={0}
+          step="0.1"
+          inputMode="decimal"
+          value={text}
+          aria-label="USD to INR conversion rate"
+          onChange={(e) => {
+            setText(e.target.value);
+            const v = Number(e.target.value);
+            if (Number.isFinite(v) && v > 0) setRate(v);
+          }}
+          onBlur={() => {
+            const v = Number(text);
+            if (!Number.isFinite(v) || v <= 0) setText(String(rate));
+          }}
+          className="w-16 rounded border border-borders bg-surfaces px-1.5 py-0.5 tabular-nums text-ink/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
+        />
+      </label>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { forwardRef, useRef } from 'react';
-import { USD_TO_INR, currencySymbol, useCurrency } from '../../lib/currency';
+import { currencySymbol, useCurrency } from '../../lib/currency';
 import { CUSTOM_MODEL_FALLBACK } from '../../lib/labels';
 
 // ---------------------------------------------------------------------------
@@ -281,8 +281,8 @@ export function MoneyField({
   min?: number;
   max?: number;
 }) {
-  const { currency } = useCurrency();
-  const rate = currency === 'INR' ? USD_TO_INR : 1;
+  const { currency, rate: usdInr } = useCurrency();
+  const rate = currency === 'INR' ? usdInr : 1;
   const shown = Number.isFinite(valueUsd) ? Math.round(valueUsd * rate) : 0;
   return (
     <NumberField

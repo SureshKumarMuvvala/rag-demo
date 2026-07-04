@@ -168,7 +168,7 @@ export default function TabEstimate({
   const [learnOpen, setLearnOpen] = useState<Partial<Record<SectionId, boolean>>>({});
   const railRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const learnBtnRef = useRef<HTMLButtonElement | null>(null);
-  const { currency } = useCurrency();
+  const { currency, rate } = useCurrency();
 
   // Dismissible scenario hint (resets on reload — a hint, not persisted).
   const [showScenario, setShowScenario] = useState(true);
@@ -440,7 +440,7 @@ export default function TabEstimate({
           </span>
           <span className="flex items-center gap-2">
             <span className="font-mono text-xl font-semibold tabular-nums">
-              {formatMoneyShort(costs.total, currency)}
+              {formatMoneyShort(costs.total, currency, rate)}
             </span>
             <span className="text-white/60">{sheetOpen ? '▾' : '▴'}</span>
           </span>

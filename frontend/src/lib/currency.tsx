@@ -11,7 +11,7 @@ import { createContext, useContext, useMemo, useState } from 'react';
 
 export type Currency = 'INR' | 'USD';
 
-/** Standard illustrative conversion — editable; shown to the user. */
+/** Default illustrative conversion — editable at runtime; shown to the user. */
 export const USD_TO_INR = 95.1;
 
 /** Default currency for the whole app. */
@@ -22,12 +22,14 @@ export function currencySymbol(currency: Currency): string {
 }
 
 /** Convert a USD amount into the target currency's nominal value. */
-export function convert(amountUSD: number, currency: Currency): number {
-  return currency === 'INR' ? amountUSD * USD_TO_INR : amountUSD;
+export function convert(amountUSD: number, currency: Currency, rate: number = USD_TO_INR): number {
+  return currency === 'INR' ? amountUSD * rate : amountUSD;
 }
 
 /** Transparency stamp shown near the currency selector and in exports. */
-export const CONVERSION_STAMP = `1 USD = ${currencySymbol('INR')}${USD_TO_INR} · illustrative rate`;
+export function conversionStamp(rate: number = USD_TO_INR): string {
+  return `1 USD = ${currencySymbol('INR')}${rate} · illustrative rate`;
+}
 
 /**
  * Format a USD amount in the selected currency with full digit grouping and
@@ -35,8 +37,8 @@ export const CONVERSION_STAMP = `1 USD = ${currencySymbol('INR')}${USD_TO_INR} �
  * lakh-crore grouping ("₹11,87,500"). No decimals for large figures; small
  * figures (< 1,000 in the display currency) keep up to two decimals.
  */
-export function formatMoney(amountUSD: number, currency: Currency): string {
-  const amt = convert(amountUSD, currency);
+export function formatMoney(amountUSD: number, currency: Currency, rate: number = USD_TO_INR): string {
+  const amt = convert(amountUSD, currency, rate);
   const sign = amt < 0 ? '-' : '';
   const abs = Math.abs(amt);
   const locale = currency === 'INR' ? 'en-IN' : 'en-US';
@@ -52,8 +54,8 @@ export function formatMoney(amountUSD: number, currency: Currency): string {
  * Compact form for tight spots (e.g. the mobile pinned total). USD compacts to
  * k/M; INR compacts to the Indian lakh (L) / crore (Cr) scale.
  */
-export function formatMoneyShort(amountUSD: number, currency: Currency): string {
-  const amt = convert(amountUSD, currency);
+export function formatMoneyShort(amountUSD: number, currency: Currency, rate: number = USD_TO_INR): string {
+  const amt = convert(amountUSD, currency, rate);
   const sign = amt < 0 ? '-' : '';
   const abs = Math.abs(amt);
   const sym = currencySymbol(currency);
@@ -77,13 +79,20 @@ export function formatMoneyShort(amountUSD: number, currency: Currency): string 
 interface CurrencyContextValue {
   currency: Currency;
   setCurrency: (c: Currency) => void;
+  /** Editable USD→INR conversion rate (defaults to USD_TO_INR). */
+  rate: number;
+  setRate: (n: number) => void;
 }
 
 const CurrencyContext = createContext<CurrencyContextValue | null>(null);
 
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const [currency, setCurrency] = useState<Currency>(DEFAULT_CURRENCY);
-  const value = useMemo(() => ({ currency, setCurrency }), [currency]);
+  const [rate, setRate] = useState<number>(USD_TO_INR);
+  const value = useMemo(
+    () => ({ currency, setCurrency, rate, setRate }),
+    [currency, rate],
+  );
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;
 }
 
@@ -95,6 +104,6 @@ export function useCurrency(): CurrencyContextValue {
 
 /** Convenience: a formatter bound to the current currency. */
 export function useMoney(): (amountUSD: number) => string {
-  const { currency } = useCurrency();
-  return useMemo(() => (n: number) => formatMoney(n, currency), [currency]);
+  const { currency, rate } = useCurrency();
+  return useMemo(() => (n: number) => formatMoney(n, currency, rate), [currency, rate]);
 }

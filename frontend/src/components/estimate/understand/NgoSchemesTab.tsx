@@ -54,20 +54,11 @@ function NgoSchemeCard({ scheme }: { scheme: NgoScheme }) {
         {scheme.description}
       </p>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-full bg-brand-gradient px-3.5 py-1.5 font-display text-[13px] font-semibold text-white shadow-glow-sm transition-all hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
-        >
-          <Icon name="external-link" className="h-4 w-4" />
-          Preview
-        </a>
+      <div className="mt-3">
         <button
           type="button"
           onClick={() => downloadUrl(url, scheme.filename)}
-          className="inline-flex items-center gap-2 rounded-full border border-petrol bg-surfaces px-3.5 py-1.5 font-display text-[13px] font-semibold text-petrol transition-colors hover:bg-tinted-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
+          className="inline-flex items-center gap-2 rounded-full bg-brand-gradient px-3.5 py-1.5 font-display text-[13px] font-semibold text-white shadow-glow-sm transition-all hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-petrol-light"
         >
           <Icon name="download" className="h-4 w-4" />
           Download
