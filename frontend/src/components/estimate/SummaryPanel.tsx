@@ -70,8 +70,9 @@ export default function SummaryPanel({
         <div className="mt-1 font-mono text-xs uppercase tracking-wider text-ink/60">
           {formatCurrency(costs.annual)} / year
         </div>
-        <div className="mt-0.5 font-mono text-xs uppercase tracking-wider text-ink/60">
-          {formatCurrency(costs.setup)} one-time setup
+        <div className="mt-1 flex items-baseline justify-between gap-2 font-mono text-xs uppercase tracking-wider">
+          <span className="font-semibold text-ink/80">One-time setup</span>
+          <span className="font-semibold tabular-nums text-ink">{formatCurrency(costs.setup)}</span>
         </div>
         <RateStamp />
       </div>
