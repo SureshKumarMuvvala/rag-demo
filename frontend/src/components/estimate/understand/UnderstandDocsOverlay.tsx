@@ -3,8 +3,9 @@ import type { Inputs } from '../../../lib/types';
 import Icon from '../../Icon';
 import AnalyzeDocsTab from './AnalyzeDocsTab';
 import SampleDocsTab from './SampleDocsTab';
+import NgoSchemesTab from './NgoSchemesTab';
 
-type Tab = 'analyze' | 'sample';
+type Tab = 'analyze' | 'sample' | 'ngo';
 
 interface Props {
   inputs: Inputs;
@@ -105,6 +106,9 @@ export default function UnderstandDocsOverlay({ inputs, onSave, onClose }: Props
             <TabBtn active={tab === 'sample'} onClick={() => setTab('sample')}>
               Sample documents
             </TabBtn>
+            <TabBtn active={tab === 'ngo'} onClick={() => setTab('ngo')}>
+              NGO scheme documents
+            </TabBtn>
           </div>
         </div>
       </header>
@@ -118,6 +122,9 @@ export default function UnderstandDocsOverlay({ inputs, onSave, onClose }: Props
           </div>
           <div className={tab === 'sample' ? '' : 'hidden'}>
             <SampleDocsTab onSave={onSave} />
+          </div>
+          <div className={tab === 'ngo' ? '' : 'hidden'}>
+            <NgoSchemesTab />
           </div>
         </div>
       </div>
